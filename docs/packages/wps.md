@@ -5,6 +5,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | WPS Office |
+| 分组 | 办公软件（`office`） |
 | 版本 | 安装包版本号 28505 |
 | 安装包 | `packages/wps/WPS_Setup_28505.exe` |
 | 安装脚本 | [`Include/Install/wps.au3`](../../Include/Install/wps.au3) |

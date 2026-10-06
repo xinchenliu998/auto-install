@@ -1,5 +1,5 @@
 ﻿; ==============================================================================
-; Config.au3 —— 配置管理模块
+; Config.au3 —— 配置管理模块（入口）
 ; ------------------------------------------------------------------------------
 ; 配置文件：<脚本目录>\config.ini
 ;
@@ -18,6 +18,13 @@
 ;   UserName=admin
 ;   Password=BJ88888888
 ;
+; 安装包目录下每个 <软件目录>\package.ini 可写（都可省略）：
+;
+;   [Package]
+;   DisplayName=WPS Office   显示名，省略则用目录名
+;   Category=office          分组键，省略归入「未分组」
+;   Required=1               1 = 必须安装（归入「必须安装」组，且勾选不可取消）
+;
 ; 说明：
 ;   * InstallRoot 保存的是「可含环境变量的模板」，便于换机器 / 换账户后仍可用；
 ;     实际使用时通过 Config_InstallRootReal() 展开成真实路径。
@@ -30,295 +37,37 @@
 ;     默认值 $ACCT_DEF_USER / $ACCT_DEF_PASS（见 Constants.au3），改配置即可覆盖。
 ;     密码以**明文**保存，config.ini 本身不入库。
 ;   * 软件列表由 PackagesDir 下的子目录自动扫描得出，勾选状态记录在 [Packages]。
+;   * 列表按 package.ini 里的 Category 分组显示，见 Config_BuildGroups()；
+;     package.ini 保持 ASCII（中文分组名由 Config_CategoryName() 映射，原因见 Constants.au3）。
 ;
 ; 段名 / 键名 / 目录名 / 数组列索引等一律取自 Constants.au3。
+;
+; 【本文件只放入口】
+;   配置模块按「配置域」拆开，本文件只做两件需要横跨所有域的整批操作：
+;   Config_Load() 与 Config_Save()。各域的实现见同目录下的子模块：
+;
+;     Config\Shared.au3     全局状态（$g_*）+ Config_Init() / Config_File() + 通用小工具
+;     Config\General.au3    安装根目录 / 资源拷贝目录 / 开机账户
+;     Config\Packages.au3   安装包目录 + 软件列表（扫描 / 访问器 / 勾选）
+;     Config\Group.au3      分组（键 / 顺序 / 显示名）+「必须安装」
+;
+;   子模块一律沿用 `Config_` 前缀（它们是本模块**对外**的 API，被 Gui\*、
+;   Installer.au3、auto-install.au3 调用，拆文件不该顺带改调用方）；
+;   每个子模块头部都写明了自己负责哪一段函数。原因详见 Config\Shared.au3 的说明。
 ; ==============================================================================
 
 #include-once
-
-#include <File.au3>
-#include <FileConstants.au3>
 
 #include "Constants.au3"
 #include "Common.au3"
 
 ; ------------------------------------------------------------------------------
-; 全局状态
+; 子模块（共享声明与各子模块都自带 #include-once，顺序无关）
 ; ------------------------------------------------------------------------------
-Global $g_sConfigFile   = ""
-Global $g_sSoftwareName = $APP_NAME
-Global $g_sInstallRoot  = ""
-Global $g_sLogFileName  = ""
-Global $g_sPackagesDir  = ""
-Global $g_sCopySource   = ""
-Global $g_sCopyDest     = ""
-Global $g_sUserName     = ""        ; 开机账户（前置检查用，见 Precheck\Account.au3）
-Global $g_sPassword     = ""
-
-; 软件列表：[i][$PKG_COL_*]
-Global $g_aPackages[1][$PKG_COL_COUNT]
-Global $g_iPackageCount = 0
-
-; ==============================================================================
-; 初始化与访问器
-; ==============================================================================
-
-Func Config_Init()
-    $g_sConfigFile  = Common_JoinPath(@ScriptDir, $FILE_CONFIG)
-    $g_sLogFileName = $FILE_LOG_PREFIX & Common_TimeStamp() & $FILE_LOG_EXT
-    $g_sInstallRoot = Config_DefaultRoot($g_sSoftwareName)
-    $g_sPackagesDir = $DIR_PACKAGES_DEF
-    $g_sUserName    = $ACCT_DEF_USER        ; 开机账户默认值，见 Constants.au3
-    $g_sPassword    = $ACCT_DEF_PASS
-EndFunc
-
-Func Config_File()
-    Return $g_sConfigFile
-EndFunc
-
-; 默认安装根目录：%LOCALAPPDATA%\<公司名>\<软件名>
-Func Config_DefaultRoot($sSoftwareName)
-    Local $sName = StringStripWS($sSoftwareName, 3)
-    If $sName = "" Then $sName = $APP_NAME
-
-    Return Common_JoinPath(Common_JoinPath($ENV_INSTALL_BASE, $APP_COMPANY), $sName)
-EndFunc
-
-Func Config_SoftwareName()
-    Return $g_sSoftwareName
-EndFunc
-
-Func Config_SetSoftwareName($sName)
-    Local $s = StringStripWS($sName, 3)
-    If $s = "" Then $s = $APP_NAME
-    $g_sSoftwareName = $s
-EndFunc
-
-Func Config_InstallRoot()
-    Return $g_sInstallRoot
-EndFunc
-
-Func Config_SetInstallRoot($sRoot)
-    Local $s = StringStripWS($sRoot, 3)
-    If $s = "" Then $s = Config_DefaultRoot($g_sSoftwareName)
-    $g_sInstallRoot = $s
-EndFunc
-
-; 展开环境变量后的真实安装根目录
-Func Config_InstallRootReal()
-    Return Common_NormalizePath($g_sInstallRoot)
-EndFunc
-
-; 本次运行的日志文件完整路径
-Func Config_LogFile()
-    Return Common_JoinPath(Common_JoinPath(Config_InstallRootReal(), $DIR_LOGS), $g_sLogFileName)
-EndFunc
-
-; ------------------------------------------------------------------------------
-; 安装包目录
-; ------------------------------------------------------------------------------
-
-Func Config_PackagesDir()
-    Return $g_sPackagesDir
-EndFunc
-
-Func Config_SetPackagesDir($sDir)
-    Local $s = StringStripWS($sDir, 3)
-    If $s = "" Then $s = $DIR_PACKAGES_DEF
-    $g_sPackagesDir = $s
-EndFunc
-
-; 解析后的安装包目录（相对路径相对本程序解析）
-Func Config_PackagesDirReal()
-    Return Common_ResolvePath($g_sPackagesDir, @ScriptDir)
-EndFunc
-
-; ------------------------------------------------------------------------------
-; 资源拷贝目录
-; ------------------------------------------------------------------------------
-
-Func Config_CopySource()
-    Return $g_sCopySource
-EndFunc
-
-Func Config_SetCopySource($sDir)
-    $g_sCopySource = StringStripWS($sDir, 3)
-EndFunc
-
-; 解析后的拷贝源目录；未配置返回空串
-Func Config_CopySourceReal()
-    Return Common_ResolvePath($g_sCopySource, @ScriptDir)
-EndFunc
-
-Func Config_CopyDest()
-    Return $g_sCopyDest
-EndFunc
-
-Func Config_SetCopyDest($sDir)
-    $g_sCopyDest = StringStripWS($sDir, 3)
-EndFunc
-
-; 解析后的拷贝目标目录；未配置则回退到安装根目录
-Func Config_CopyDestReal()
-    If StringStripWS($g_sCopyDest, 3) = "" Then Return Config_InstallRootReal()
-    Return Common_ResolvePath($g_sCopyDest, @ScriptDir)
-EndFunc
-
-; 是否启用了资源拷贝
-Func Config_CopyEnabled()
-    Return (Config_CopySourceReal() <> "")
-EndFunc
-
-; ------------------------------------------------------------------------------
-; 开机账户（前置检查：确保存在一个确定的本地账户）
-; ------------------------------------------------------------------------------
-
-Func Config_UserName()
-    Return $g_sUserName
-EndFunc
-
-Func Config_SetUserName($sName)
-    $g_sUserName = StringStripWS($sName, 3)
-EndFunc
-
-; 开机账户密码。以明文保存在 config.ini（该文件不入库）。
-Func Config_Password()
-    Return $g_sPassword
-EndFunc
-
-Func Config_SetPassword($sPass)
-    $g_sPassword = $sPass
-EndFunc
-
-; 是否配置了开机账户
-Func Config_AccountEnabled()
-    Return ($g_sUserName <> "")
-EndFunc
-
-; ==============================================================================
-; 软件列表
-; ==============================================================================
-
-; 扫描安装包目录下的子目录，生成软件列表（勾选状态取自 config.ini）
-Func Config_ScanPackages()
-    Local $sPkgDir  = Config_PackagesDirReal()
-    Local $aFolders = _FileListToArray($sPkgDir, "*", $FLTA_FOLDERS)
-
-    If @error Or Not IsArray($aFolders) Then
-        $g_iPackageCount = 0
-        ReDim $g_aPackages[1][$PKG_COL_COUNT]
-        Return 0
-    EndIf
-
-    Local $iCount = $aFolders[0]
-    ReDim $g_aPackages[$iCount][$PKG_COL_COUNT]
-
-    Local $sFolder, $sPath, $sDisplay, $sIni
-
-    For $i = 1 To $iCount
-        $sFolder = $aFolders[$i]
-        $sPath   = Common_JoinPath($sPkgDir, $sFolder)
-        $sIni    = Common_JoinPath($sPath, $FILE_PACKAGE_INI)
-
-        ; 显示名可在 <安装包目录>\<目录>\package.ini 中自定义：[Package] DisplayName=xxx
-        $sDisplay = IniRead($sIni, $INI_SEC_PACKAGE, $INI_KEY_DISPLAY, $sFolder)
-
-        $g_aPackages[$i - 1][$PKG_COL_FOLDER]  = $sFolder
-        $g_aPackages[$i - 1][$PKG_COL_DISPLAY] = $sDisplay
-        $g_aPackages[$i - 1][$PKG_COL_PATH]    = $sPath
-        $g_aPackages[$i - 1][$PKG_COL_ENABLED] = _
-                Number(IniRead($g_sConfigFile, $INI_SEC_PACKAGES, $sFolder, $INI_DEFAULT_ON))
-    Next
-
-    $g_iPackageCount = $iCount
-    Return $iCount
-EndFunc
-
-; 重新扫描安装包目录，并保留「仍然存在」的软件的当前勾选状态。
-; 用于切换安装包目录后刷新列表 —— 免得用户刚勾好的选项被重置。
-Func Config_RescanPackages()
-    Local $iOld = $g_iPackageCount
-    Local $aOld[$iOld + 1][2]        ; [i][0]=目录名  [i][1]=勾选状态
-
-    For $i = 0 To $iOld - 1
-        $aOld[$i][0] = $g_aPackages[$i][$PKG_COL_FOLDER]
-        $aOld[$i][1] = $g_aPackages[$i][$PKG_COL_ENABLED]
-    Next
-
-    Config_ScanPackages()
-
-    For $i = 0 To $g_iPackageCount - 1
-        For $k = 0 To $iOld - 1
-            If $g_aPackages[$i][$PKG_COL_FOLDER] = $aOld[$k][0] Then
-                $g_aPackages[$i][$PKG_COL_ENABLED] = $aOld[$k][1]
-                ExitLoop
-            EndIf
-        Next
-    Next
-
-    Return $g_iPackageCount
-EndFunc
-
-Func Config_PackageCount()
-    Return $g_iPackageCount
-EndFunc
-
-Func Config_PackageFolder($i)
-    Return $g_aPackages[$i][$PKG_COL_FOLDER]
-EndFunc
-
-Func Config_PackageDisplay($i)
-    Return $g_aPackages[$i][$PKG_COL_DISPLAY]
-EndFunc
-
-Func Config_PackagePath($i)
-    Return $g_aPackages[$i][$PKG_COL_PATH]
-EndFunc
-
-Func Config_PackageEnabled($i)
-    Return ($g_aPackages[$i][$PKG_COL_ENABLED] = 1)
-EndFunc
-
-Func Config_SetPackageEnabled($i, $bEnabled)
-    If $bEnabled Then
-        $g_aPackages[$i][$PKG_COL_ENABLED] = 1
-    Else
-        $g_aPackages[$i][$PKG_COL_ENABLED] = 0
-    EndIf
-EndFunc
-
-; 取出所有已勾选的软件
-;   $aOut   ByRef，返回 2 维数组（至少 1 行，避免 0 长度数组）
-;   返回值  实际条数
-Func Config_GetSelected(ByRef $aOut)
-    If $g_iPackageCount = 0 Then
-        Local $aZero[1][$PKG_COL_COUNT]
-        $aOut = $aZero
-        Return 0
-    EndIf
-
-    Local $aRet[$g_iPackageCount][$PKG_COL_COUNT]
-    Local $iSel = 0
-
-    For $i = 0 To $g_iPackageCount - 1
-        If $g_aPackages[$i][$PKG_COL_ENABLED] = 1 Then
-            For $c = 0 To $PKG_COL_COUNT - 1
-                $aRet[$iSel][$c] = $g_aPackages[$i][$c]
-            Next
-            $iSel += 1
-        EndIf
-    Next
-
-    If $iSel = 0 Then
-        Local $aEmpty[1][$PKG_COL_COUNT]
-        $aOut = $aEmpty
-        Return 0
-    EndIf
-
-    ReDim $aRet[$iSel][$PKG_COL_COUNT]
-    $aOut = $aRet
-    Return $iSel
-EndFunc
+#include "Config\Shared.au3"
+#include "Config\General.au3"
+#include "Config\Group.au3"
+#include "Config\Packages.au3"
 
 ; ==============================================================================
 ; 读写

@@ -3,11 +3,22 @@
 ; ------------------------------------------------------------------------------
 ; 封装「选择要安装的软件」那个带复选框的 ListView：
 ;   · 创建：固定高度，软件多了由列表自带滚动条，不涉及任何布局调整；
-;   · 按当前配置重填内容；
-;   · 勾选状态读写、全选 / 全不选 / 反选、已选计数。
+;   · 按当前配置重填内容，并按 package.ini 里的分组打上分组头；
+;   · 勾选状态读写、全选 / 全不选 / 反选、已选计数；
+;   · 「必须安装」的软件锁定为已勾选，不参与全不选 / 反选。
 ;
 ; 控件 ID 存在 $g_idPkgList / $g_idCount（在 Gui\Config.au3 里声明），
 ; 本模块只负责操作它们，不创建窗口、不碰布局。
+;
+; 【分组显示】
+;   优先用 ListView 自带的分组视图（分组头 + 组内条目），由 ComCtl32 v6 提供，
+;   AutoIt 的界面默认就是 v6；万一某台机器上不可用，自动退化成给每行加
+;   「【分组名】显示名」前缀 —— 不报错、也不影响勾选。
+;   需要分组头是中文时，标题自己按 wchar 写入（见 GuiPackageList_InsertGroup）。
+;
+; 【列表序号 = 配置数组下标】
+;   第 i 行的下标必须与 Config_PackageCount() 的第 i 个软件一致，
+;   勾选状态才能按 GUICtrlListView 的下标正确写回配置。
 ; ==============================================================================
 
 #include-once
@@ -25,6 +36,10 @@
 ; 因此改由空闲轮询驱动刷新，用缓存避免每次都写标签。
 Global $g_iSelCount = -1
 Global $g_iSelTotal = -1
+
+; 分组视图是否可用：懒判断一次后缓存（判断要发消息，不必每次重填都问一遍）
+Global $g_bPkgGroupsTried = False
+Global $g_bPkgGroupsOn    = False
 
 ; 创建列表控件，返回控件 ID
 Func GuiPackageList_Create($iX, $iY, $iW, $iH)
@@ -45,6 +60,7 @@ Func GuiPackageList_Fill()
     If $g_idPkgList = 0 Then Return
 
     _GUICtrlListView_DeleteAllItems($g_idPkgList)
+    GuiPackageList_ClearGroups()
 
     Local $iCount = Config_PackageCount()
     If $iCount = 0 Then
@@ -55,14 +71,103 @@ Func GuiPackageList_Fill()
         Return
     EndIf
 
+    ; ---- 分组：先摆分组头，再把每个软件挂到自己的组里 ----
+    Local $aGroups[1][2]
+    Local $iGroups = Config_BuildGroups($aGroups)
+    Local $bGrouped = GuiPackageList_UseGroups()
+
+    If $bGrouped Then
+        For $g = 0 To $iGroups - 1
+            GuiPackageList_InsertGroup($g, Config_CategoryName($aGroups[$g][0]))
+        Next
+    EndIf
+
+    Local $sKey, $sText
+
     For $i = 0 To $iCount - 1
-        _GUICtrlListView_AddItem($g_idPkgList, Config_PackageDisplay($i), -1, $i)
+        $sKey  = Config_PackageCategory($i)
+        $sText = Config_PackageDisplay($i)
+
+        ; 分组视图不可用时，用文字前缀代替分组头
+        If Not $bGrouped Then $sText = "【" & Config_CategoryName($sKey) & "】" & $sText
+
+        _GUICtrlListView_AddItem($g_idPkgList, $sText, -1, $i)
+
+        If $bGrouped Then
+            _GUICtrlListView_SetItemGroupID($g_idPkgList, $i, _
+                    GuiPackageList_GroupIndex($aGroups, $iGroups, $sKey))
+        EndIf
+
         If Config_PackageEnabled($i) Then _GUICtrlListView_SetItemChecked($g_idPkgList, $i, True)
     Next
+
+    GuiPackageList_EnforceRequired()
 
     $g_iSelCount = -1                   ; 强制刷新一次计数
     $g_iSelTotal = -1
     GuiPackageList_UpdateCount()
+EndFunc
+
+; 分组键在分组表里的下标；正常必然命中，落空时退回第 0 组（不至于漏掉这一行）
+Func GuiPackageList_GroupIndex($aGroups, $iGroups, $sKey)
+    For $g = 0 To $iGroups - 1
+        If $aGroups[$g][0] = $sKey Then Return $g
+    Next
+    Return 0
+EndFunc
+
+; ------------------------------------------------------------------------------
+; 分组视图
+; ------------------------------------------------------------------------------
+
+; 原生分组视图是否可用。只判断一次；不可用时由调用方退化成文字前缀。
+Func GuiPackageList_UseGroups()
+    If $g_idPkgList = 0 Then Return False
+
+    If Not $g_bPkgGroupsTried Then
+        $g_bPkgGroupsTried = True
+        _GUICtrlListView_EnableGroupView($g_idPkgList, True)
+        $g_bPkgGroupsOn = _GUICtrlListView_GetGroupViewEnabled($g_idPkgList)
+    EndIf
+
+    Return $g_bPkgGroupsOn
+EndFunc
+
+; 插入一个分组头。
+;
+; 这里自己拼 LVGROUP、用 wchar 缓冲写标题，没有用 _GUICtrlListView_InsertGroup() ——
+; 那个 UDF 会把标题经 MultiByteToWideChar 按当前 ANSI 代码页转一道，
+; 在非中文区域设置的系统上中文分组名会变成问号。
+Func GuiPackageList_InsertGroup($iGroupID, $sHeader)
+    Local $tGroup = DllStructCreate($tagLVGROUP)
+    Local $tText  = DllStructCreate("wchar[" & (StringLen($sHeader) + 1) & "]")
+    DllStructSetData($tText, 1, $sHeader)
+
+    DllStructSetData($tGroup, "Size", DllStructGetSize($tGroup))
+    DllStructSetData($tGroup, "Mask", BitOR($LVGF_HEADER, $LVGF_ALIGN, $LVGF_GROUPID))
+    DllStructSetData($tGroup, "Header", DllStructGetPtr($tText))
+    DllStructSetData($tGroup, "GroupID", $iGroupID)
+    DllStructSetData($tGroup, "Align", $LVGA_HEADER_LEFT)
+
+    Return GUICtrlSendMsg($g_idPkgList, $LVM_INSERTGROUP, -1, DllStructGetPtr($tGroup))
+EndFunc
+
+Func GuiPackageList_ClearGroups()
+    If $g_idPkgList = 0 Then Return
+    _GUICtrlListView_RemoveAllGroups($g_idPkgList)
+EndFunc
+
+; ------------------------------------------------------------------------------
+; 勾选
+; ------------------------------------------------------------------------------
+
+; 「必须安装」的软件锁定为已勾选。用户点掉它的复选框后，由空闲轮询（约 60ms）补回来。
+Func GuiPackageList_EnforceRequired()
+    For $i = 0 To Config_PackageCount() - 1
+        If Config_PackageRequired($i) And Not _GUICtrlListView_GetItemChecked($g_idPkgList, $i) Then
+            _GUICtrlListView_SetItemChecked($g_idPkgList, $i, True)
+        EndIf
+    Next
 EndFunc
 
 Func GuiPackageList_CountSelected()
@@ -77,6 +182,8 @@ EndFunc
 Func GuiPackageList_UpdateCount()
     If $g_idPkgList = 0 Then Return
 
+    GuiPackageList_EnforceRequired()    ; 锁定项被点掉时立刻补回来
+
     Local $iTotal = Config_PackageCount()
     Local $iSel = GuiPackageList_CountSelected()
 
@@ -89,13 +196,17 @@ EndFunc
 
 Func GuiPackageList_SetAll($bChecked)
     For $i = 0 To Config_PackageCount() - 1
-        _GUICtrlListView_SetItemChecked($g_idPkgList, $i, $bChecked)
+        ; 「必须安装」的软件不参与「全不选」
+        If $bChecked Or Not Config_PackageRequired($i) Then
+            _GUICtrlListView_SetItemChecked($g_idPkgList, $i, $bChecked)
+        EndIf
     Next
     GuiPackageList_UpdateCount()
 EndFunc
 
 Func GuiPackageList_Invert()
     For $i = 0 To Config_PackageCount() - 1
+        If Config_PackageRequired($i) Then ContinueLoop    ; 锁定项不参与反选
         _GUICtrlListView_SetItemChecked($g_idPkgList, $i, _
                 Not _GUICtrlListView_GetItemChecked($g_idPkgList, $i))
     Next

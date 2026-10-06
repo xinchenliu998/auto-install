@@ -5,6 +5,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | SQLite（命令行工具包） |
+| 分组 | 基础环境（`base`） |
 | 版本 | 3.53.04（x64） |
 | 安装包 | `packages/SQLite3/sqlite-tools-win-x64-3530400.zip` |
 | 安装脚本 | [`Include/Install/sqlite3.au3`](../../Include/Install/sqlite3.au3) |

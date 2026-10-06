@@ -57,6 +57,19 @@
    参考 `Include\Precheck\Base.au3`、`Include\Gui\ConfigShared.au3`。
    `tools/check_syntax.py` 第 3 项会逐个文件跑 Au3Check 核对这一点。
 
+7. **`.ini` 里不要写中文值（`package.ini` / `config.ini`）。**
+   AutoIt 的 `IniRead` 是按 **ANSI 代码页**读无 BOM 文件的。实测三种编码读同一个中文值：
+
+   | 编码 | 结果 |
+   | --- | --- |
+   | UTF-8 无 BOM | **乱码**（4 个字读成 6 个乱码字） |
+   | UTF-8 带 BOM | **整段读不到**，`[Package]` 段都解析不出来，`DisplayName` 回落成目录名 |
+   | ANSI / GBK | 正确 |
+
+   所以 `package.ini` 一律保持 ASCII：中文**显示名**放 `Config_CategoryName()`（`Config\Group.au3`），
+   键值只用 ASCII（`DisplayName` / `Category` / `Required`）。
+   文件里的中文**注释**没问题（注释在 `;` 之后，不参与解析）。
+
 ---
 
 ## 四、改完必须跑的自检
@@ -116,7 +129,11 @@ Include/
   Constants.au3               全局常量，唯一来源
   Common.au3                  基础工具：权限、路径、环境变量、外部命令
   Logger.au3                  日志（文件 + 界面双写；界面按级别着色）
-  Config.au3                  配置读写 + 安装包目录扫描
+  Config.au3                  配置模块入口：Config_Load() / Config_Save()
+  Config/Shared.au3           配置共享底座：全局状态 + 通用小工具（各子模块各自 include）
+  Config/General.au3          通用配置项：安装根目录 / 资源拷贝目录 / 开机账户
+  Config/Packages.au3         安装包目录 + 软件列表：扫描、访问器、勾选
+  Config/Group.au3            软件分组：分组键 / 顺序 / 显示名 +「必须安装」
   Installer.au3               安装调度 + 通用安装流程 + 安装辅助（解压、写 PATH、等待心跳）
   Precheck.au3                前置检查入口：Precheck_RunAll()
   Precheck/Base.au3           前置检查共享底座：状态 + 辅助（各子模块各自 include）
@@ -144,6 +161,11 @@ tools/precheck_smoke.au3      前置检查只读探针冒烟测试（不修改�
 **分层原则**：`Constants` 无依赖 → `Common`/`Logger` 是基础层 → `Installer`/`Precheck` 是业务层 →
 `Install/*` 是最外层实现。**基础层不要反过来依赖上层**（曾因为把带日志的解压函数放进
 `Common.au3` 而与 `Logger.au3` 形成循环 include，已改到 `Installer.au3`）。
+
+`Config` 模块内部同样分层：`Config/Shared.au3`（底座，只依赖 `Constants`/`Common`）→
+`Config/General.au3` / `Config/Group.au3` → `Config/Packages.au3` → `Config.au3`（入口）。
+**共享的全局状态与工具函数一律放 `Shared.au3`** —— 放上层会让下层文件单独检查时报
+`undefined function`（`Config_DefaultRoot()` 踩过这个坑，见第三节硬约束 6）。
 
 `Precheck.au3` 是「整批前置操作」的范例：一个模块收一类检查，对外只暴露 `Precheck_RunAll()`，
 由界面层在安装前调用；**不要在 `Installer_RunAll()` 里堆前置/后置操作**。新增同类模块时照此办理。
@@ -186,19 +208,33 @@ tools/precheck_smoke.au3      前置检查只读探针冒烟测试（不修改�
 ## 七、新增一个软件（最常做的改动）
 
 1. 在**安装包目录**（默认 `packages/`，可在配置界面改，见 `Config_PackagesDirReal()`）下
-   新建 `<软件名>/`，放入安装包，并放一份 `package.ini` 指定界面显示名：
+   新建 `<软件名>/`，放入安装包，并放一份 `package.ini` 指定显示名、分组与是否必须安装：
 
    ```ini
    [Package]
    DisplayName=WPS Office
+   Category=office
+   Required=0
    ```
+
+   - `Category` 取 `Include\Constants.au3` 的 `$PKG_CAT_ORDER` 里的键
+     （`required` / `base` / `dev` / `debug` / `vision` / `office` / `misc`），省略归入「未分组」（`misc`）；
+     想在界面上排到别的位置就调 `$PKG_CAT_ORDER` 的顺序。
+   - `Required=1` 表示**必须安装**：固定归入「必须安装」组并排最前，界面与 `config.ini`
+     都取消不掉它的勾选。分组与勾选的读取/强制逻辑在 `Include\Config\Packages.au3`
+     （`Config_ScanPackages()`）与 `Include\Config\Group.au3`
+     （`Config_BuildGroups()` / `Config_ApplyRequired()`），
+     列表显示在 `Include\Gui\PackageList.au3`。
+   - 界面里中文分组名由 `Config_CategoryName()` 映射，`package.ini` 只写 ASCII 键值
+     —— 原因见第三节硬约束 7。
 
    > **整个安装包目录都不纳入版本管理**（见 `.gitignore`）：安装包体积过大，
    > 而且该目录本身可配置、可以放在仓库之外。所以安装包与 `package.ini`
    > 都跟随安装包一起管理，不随仓库分发 —— 克隆仓库后需自行创建该目录，
    > 或在配置界面把「安装包目录」指到别处。
    >
-   > `package.ini` 内容保持 ASCII，**不要写 BOM**，否则 `IniRead` 可能读不到第一段。
+   > `package.ini` 内容保持 ASCII，**不要写 BOM**（硬约束 7：带 BOM 会让 `IniRead`
+   > 连 `[Package]` 段都读不到）。
 
 2. `Include/Install/<软件名>.au3`（文件名对齐 `docs/packages/*.md`）。**安装脚本只声明常量 + 填参数**，
    流程全部复用现成函数：
@@ -276,12 +312,20 @@ tools/precheck_smoke.au3      前置检查只读探针冒烟测试（不修改�
 | 在安装脚本里又抄一遍「检测 / 执行 / 校验」 | 用 `Installer_InstallSilent()` / `Installer_InstallGreen()`，脚本里只填参数 |
 | 改了 `.au3` 却不跑语法检查 | 跑 `python tools/check_syntax.py`（Au3Check）；文本级脚本查不出语法错误 |
 | 共享声明留在父文件里 | 整体编译能过，但子模块单独打开全是红字。抽成独立文件让子模块各自 `#include` |
+| 共享函数放错层（如 `Config_DefaultRoot()` 放 `General.au3` 而 `Shared.au3` 要调它） | 整体编译能过，**单文件 Au3Check 报 `undefined function`**（`check_syntax.py` 第 3 项）。共享的东西一律放各自最底层那个文件 |
+| 往 `package.ini` / `config.ini` 里写中文值 | `IniRead` 按 ANSI 读，UTF-8 中文读成乱码、带 BOM 整段读不到。ini 只写 ASCII，中文映射放 `Config\Group.au3` 的 `Config_CategoryName()` |
+| 「必须安装」的勾选被绕过 | 读取（`Config_ScanPackages`）、重扫（`Config_RescanPackages`）、写入（`Config_SetPackageEnabled`）、界面（`GuiPackageList_EnforceRequired`）四处都要强制，少一处就能被点掉 |
 | 用了不存在的宏（如 `@PID`，应为 `@AutoItPID`） | 只有 Au3Check 能抓到，必须跑语法检查 |
 | 解析外部命令输出的代码只靠静态检查 | 必须真跑 `tools\precheck_smoke.au3` 冒烟测试（只读，不改系统） |
+| 改系统设置的代码「只看退出码就报成功」 | 外部命令返回 0 只代表**命令被接受**，不代表**状态已生效**。设置类操作（密码策略、电源、远程桌面）必须**回读确认**；`PowerShell` 的 `Set-*` 在缺模块时还会「报错但退出码骗人」 |
+| 以为 `Set-LocalUser` / `Get-LocalUser` 在 Win10 上一定有 | 它们属 PowerShell 的 **LocalAccounts 模块**，精简版 / 老版本工控机上**常常没有**，调用报 `CommandNotFoundException`、退出码 1。必须准备回退路径（如 `net accounts /maxpwage:unlimited`） |
+| 用 WMI `Win32_UserAccount.PasswordExpires` 判断「密码会不会过期」时把空值当 `False` | AutoIt 里**空值经布尔判断会变成 `False`**，于是「读不出来」被误判成「不会过期」。要用 `IsKeyword($v) = $KEYWORD_NULL` 显式区分；读不出来按「会过期」处理（`$KEYWORD_NULL` 需 `#include <AutoItConstants.au3>`，本项目已在 `Common.au3` 里引入） |
+| 最终校验只查「对象是否存在」就报 OK | 前置检查的目的是「能用确定凭据登进去」，账户存在 ≠ 密码不过期。校验必须覆盖**真正关心的那项属性**，否则会出现「…密码会过期」紧跟「[OK] 检查通过」的自相矛盾日志 |
 | 把 `StringRegExp(..., 3)` 的返回值当成「带计数的数组」 | flag 3 返回**纯匹配数组（0 基，没有计数元素）**，个数用 `UBound()` 取；`$a[0]` 是第一个匹配值 |
 | 在脚本顶层（函数外）用 `Local` 声明变量 | 顶层要用 `Global`，否则 Au3Check 报 `'Local' specifier in global scope` |
 | 给 RichEdit 设颜色时「先设色再追加文字」 | 颜色会整体错位一行（`SCF_SELECTION` 作用在光标**前**一个字符）。要**先追加 → 选中新追加的范围 → 再上色** |
-| RichEdit 的颜色 / 长度口径搞错 | 颜色是 **COLORREF(BGR)**，不是 GUI 函数的 RGB（用 `Logger_RgbToColorRef()` 转）；`_GUICtrlRichEdit_GetTextLength()` 默认返回**字节数**，要字符数得传 `$bChars = True` |
+| RichEdit 的颜色口径搞错 | 颜色是 **COLORREF(BGR)**，不是 GUI 函数的 RGB（用 `Logger_RgbToColorRef()` 转）。另外 `_GUICtrlRichEdit_GetTextLength()` 的 `$bChars=True` **不是纯字符数** —— 中文每字会多算 1，别拿它当 `SetSel` 的坐标（见下一行） |
+| 用 `_GUICtrlRichEdit_GetTextLength()` 算 `SetSel` 的位置（日志串色） | RichEdit 有**三套字符计数**：`GetTextLength($h,True,True)` 中文每字多算 1；`StringLen(GetText)` 把 `@CRLF` 当 2；而 `SetSel`/`GetSel` 的内部坐标把 `@CRLF` 当 1。混用会逐行累积偏移 →「从某行开始串色」。**别自己算位置**：追加后用 `_GUICtrlRichEdit_GetSel()` 读回末尾，着色区间取 `[上次末尾, 本次末尾)`，全程只用 `SetSel` 那套坐标 |
 | 声称「已编译通过」「已实测通过」 | 语法检查只能证明语法正确；行为、界面、外部命令参数需在目标机实测 |
 
 ---

@@ -5,6 +5,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | HslCommunicationDemo（HslCommunication 通讯调试工具） |
+| 分组 | 调试工具（`debug`） |
 | 版本 | 安装包内未标注（主程序文件版本为占位值 `1.0.0.0`，以包内 `HslCommunication.dll` 实际版本为准） |
 | 安装包 | `packages/HslCommunicationDemo/HslCommunicationDemo.zip` |
 | 安装脚本 | [`Include/Install/hsl-communication-demo.au3`](../../Include/Install/hsl-communication-demo.au3) |

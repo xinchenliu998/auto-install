@@ -5,6 +5,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | DBX（数据库客户端） |
+| 分组 | 开发工具（`dev`） |
 | 版本 | 0.6.34（x64） |
 | 安装包 | `packages/DBX/DBX_0.6.34_x64-offline-setup.exe` |
 | 安装脚本 | [`Include/Install/dbx.au3`](../../Include/Install/dbx.au3) |

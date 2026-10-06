@@ -131,7 +131,7 @@ EndFunc
 Func GuiConfigLayout_CreatePackageGroup()
     Local $iGrpW = $UI_CFG_W - 2 * $UI_CFG_MARGIN
 
-    $g_idGrp2 = GUICtrlCreateGroup(" 选择要安装的软件 ", $UI_CFG_MARGIN, $UI_CFG_GRP2_Y, _
+    $g_idGrp2 = GUICtrlCreateGroup(" 选择要安装的软件（按分类分组） ", $UI_CFG_MARGIN, $UI_CFG_GRP2_Y, _
             $iGrpW, $UI_CFG_GRP2_H)
 
     ; ---- 工具条 ----
@@ -140,12 +140,20 @@ Func GuiConfigLayout_CreatePackageGroup()
     $g_idSelectNone   = GUICtrlCreateButton("全不选", $UI_CFG_PAD + 70, $iBarY, 64, 26)
     $g_idSelectInvert = GUICtrlCreateButton("反选", $UI_CFG_PAD + 140, $iBarY, 64, 26)
 
+    GUICtrlSetTip($g_idSelectAll, "勾选全部软件（含「必须安装」的）")
+    GUICtrlSetTip($g_idSelectNone, "取消全部勾选；「必须安装」的软件保持勾选")
+    GUICtrlSetTip($g_idSelectInvert, "勾选的取消、未勾选的勾上；「必须安装」的软件保持勾选")
+
     $g_idCount = GUICtrlCreateLabel("", 364, $iBarY + 4, 220, 20, $SS_RIGHT)
     GUICtrlSetColor($g_idCount, $UI_COLOR_TEXT)
+    GUICtrlSetTip($g_idCount, "已勾选 / 总数。「必须安装」的软件已锁定，不可取消勾选。")
 
     ; ---- 列表（固定高度，软件多了由列表自带滚动条）----
     $g_idPkgList = GuiPackageList_Create($UI_CFG_PAD, $UI_CFG_GRP2_Y + $UI_CFG_GRP2_BAR, _
             $iGrpW - 2 * $UI_CFG_INNER_PAD, $UI_CFG_LIST_H)
+
+    GUICtrlSetTip($g_idPkgList, "按各软件 package.ini 里的 Category 分组显示。" & @CRLF & _
+            "Required=1 的软件固定归入「必须安装」分组，且不可取消勾选。")
 
     GUICtrlCreateGroup("", -99, -99, 1, 1)
 EndFunc

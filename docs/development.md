@@ -13,7 +13,12 @@ auto-install.au3                     总入口：解析命令行 → 配置界�
         ├── Include/Constants.au3    全局常量（唯一来源）
         ├── Include/Common.au3       通用工具：权限、路径、环境变量、外部命令
         ├── Include/Logger.au3       日志（文件 + 界面；界面按级别着色）
-        ├── Include/Config.au3       配置读写 + 安装包目录扫描
+        ├── Include/Config.au3       配置模块入口（Load / Save）
+        ├── Include/Config/          配置模块按配置域拆分
+        │     ├── Shared.au3         共享底座：全局状态 + 通用小工具
+        │     ├── General.au3        通用配置项：安装根目录 / 资源拷贝 / 开机账户
+        │     ├── Packages.au3       安装包目录 + 软件列表（扫描 / 访问器 / 勾选）
+        │     └── Group.au3          软件分组（键 / 顺序 / 显示名）+「必须安装」
         ├── Include/Installer.au3    安装调度 + 通用安装流程 + 安装辅助（含等待心跳）
         ├── Include/Precheck.au3     前置检查入口：Precheck_RunAll()
         ├── Include/Precheck/        前置检查各项（内部按检查项拆分）
@@ -90,7 +95,12 @@ auto-install/
 │   ├── Constants.au3       #   全局常量集中管理
 │   ├── Common.au3          #   通用工具：权限、路径、环境变量、外部命令执行
 │   ├── Logger.au3          #   日志（文件 + 界面；界面按级别着色）
-│   ├── Config.au3          #   配置读写（config.ini）+ 安装包目录扫描
+│   ├── Config.au3          #   配置模块入口：Config_Load() / Config_Save()
+│   ├── Config/             #   配置模块，按配置域拆分
+│   │   ├── Shared.au3      #     共享底座：全局状态 + 通用小工具（各子模块各自 include）
+│   │   ├── General.au3     #     通用配置项：安装根目录 / 资源拷贝目录 / 开机账户
+│   │   ├── Packages.au3    #     安装包目录 + 软件列表：扫描 / 访问器 / 勾选
+│   │   └── Group.au3       #     软件分组：分组键 / 顺序 / 显示名 +「必须安装」
 │   ├── Installer.au3       #   安装调度 + 通用安装流程 + 安装辅助（含等待心跳）
 │   ├── Precheck.au3        #   前置检查入口：Precheck_RunAll()
 │   ├── Precheck/           #   前置检查各项，按检查项拆分
@@ -117,7 +127,7 @@ auto-install/
 │       ├── hsl-communication-demo.au3
 │       └── dbx.au3
 └── packages/               # 各软件的安装包 —— 整个目录不入库（见 .gitignore）
-    ├── 7zip/               # 每个目录下：安装包 + package.ini（界面显示名）
+    ├── 7zip/               # 每个目录下：安装包 + package.ini（显示名 / 分组 / 必须安装）
     ├── SQLite3/            # 克隆仓库后需自行创建本目录，或在配置界面指向别处
     ├── Sublime Text/
     ├── everything/
@@ -141,7 +151,7 @@ auto-install/
 | `Include/` | 框架脚本 | 可复用的 `.au3` 函数库，统一封装安装、解压、日志等通用逻辑 |
 | `Include/Gui/` | 界面层 | 配置界面与执行界面，按「入口 / 布局 / 状态 / 列表控件」拆成多个文件 |
 | `Include/Install/` | 各软件安装脚本 | 一个软件一个 `.au3`，通过 `Installer_Register()` 自注册；`All.au3` 是集中 include 它们的汇总入口 |
-| `packages/` | 软件安装包（默认位置） | 按「软件名」建子目录。**目录可配置、可指向仓库之外，且整个目录不入库** |
+| `packages/` | 软件安装包（默认位置） | 按「软件名」建子目录，目录内放安装包 + `package.ini`（显示名 / 分组 / 必须安装）。**目录可配置、可指向仓库之外，且整个目录不入库** |
 
 ### 框架模块职责
 
@@ -150,7 +160,11 @@ auto-install/
 | `Constants.au3` | 全局常量 | —（只声明常量） |
 | `Common.au3` | 无业务的基础工具 | `Common_RunWait()`、`Common_JoinPath()`、`Common_IsElevated()`、`Common_Which()`、`Common_Find7Zip()` |
 | `Logger.au3` | 日志双写（文件 + 界面）；**界面按级别着色**（RichEdit） | `Logger_Init()`、`Logger_SetConsole()`、`Logger_Info()`、`Logger_Warn()`、`Logger_Err()`、`Logger_Ok()`、`Logger_Step()`、`Logger_LevelColor()` |
-| `Config.au3` | 配置对象与读写 | `Config_Load()`、`Config_Save()`、`Config_GetSelected()`、`Config_RescanPackages()`、`Config_InstallRootReal()`、`Config_PackagesDirReal()`、`Config_CopySourceReal()`、`Config_CopyDestReal()` |
+| `Config.au3` | 配置模块**入口**：只做两件跨配置域的整批操作 | `Config_Load()`、`Config_Save()` |
+| `Config/Shared.au3` | 配置模块共享底座：全局状态（`$g_*`）与通用小工具 | `Config_Init()`、`Config_File()`、`Config_ParseBool()`、`Config_ArrayFind()`、`Config_ArrayAppendUnique()` |
+| `Config/General.au3` | 通用配置项：安装根目录 / 资源拷贝目录 / 开机账户 | `Config_InstallRootReal()`、`Config_CopySourceReal()`、`Config_CopyDestReal()`、`Config_UserName()`、`Config_Password()` |
+| `Config/Packages.au3` | 安装包目录 + 软件列表：扫描时一并读出 `package.ini` 的 `Category` / `Required` | `Config_ScanPackages()`、`Config_RescanPackages()`、`Config_GetSelected()`、`Config_PackageCategory()`、`Config_PackageRequired()`、`Config_PackagesDirReal()` |
+| `Config/Group.au3` | 软件分组：键归一化 / 显示顺序 / 中文显示名 +「必须安装」强制勾选 | `Config_BuildGroups()`、`Config_CategoryName()`、`Config_CategoryKey()`、`Config_ApplyRequired()` |
 | `Installer.au3` | 注册表、调度、**通用安装流程**、安装辅助（解压 / 写 PATH / 等待心跳） | `Installer_Register()`、`Installer_RunAll()`、`Installer_InstallSilent()`、`Installer_InstallGreen()`、`Installer_RunWaitBeat()`、`Installer_SetWaitNotify()`、`Installer_FindInstalled()`、`Installer_ExtractZip()`、`Installer_AddToSystemPath()` |
 | `Precheck.au3` | 前置检查入口：结果汇总与「继续 / 中止」确认 | `Precheck_RunAll()` |
 | `Precheck/Base.au3` | 前置检查共享底座：状态（问题列表 / 设备列表 / 家庭版标记）与辅助函数 | `Precheck_AddIssue()`、`Precheck_Capture()`、`Precheck_RunCmd()`、`Precheck_LogBefore()` |
@@ -159,7 +173,7 @@ auto-install/
 | `Gui/Config.au3` | 配置界面入口、消息循环 | `GuiConfig_Show()` |
 | `Gui/ConfigLayout.au3` | 配置界面构建（把控件摆出来） | `GuiConfigLayout_CreateHeader()`、`GuiConfigLayout_CreateBasicGroup()`、`GuiConfigLayout_CreatePackageGroup()`、`GuiConfigLayout_CreateBottomBar()` |
 | `Gui/ConfigState.au3` | 配置界面状态同步与校验回写 | `GuiConfigState_SyncHint()`、`GuiConfigState_ReloadPackages()`、`GuiConfigState_Apply()` |
-| `Gui/PackageList.au3` | 软件列表控件（带复选框的 ListView） | `GuiPackageList_Create()`、`GuiPackageList_Fill()`、`GuiPackageList_WriteToConfig()` |
+| `Gui/PackageList.au3` | 软件列表控件（带复选框的 ListView）；按分组头分组显示，「必须安装」项锁定勾选 | `GuiPackageList_Create()`、`GuiPackageList_Fill()`、`GuiPackageList_WriteToConfig()`、`GuiPackageList_SetAll()`、`GuiPackageList_EnforceRequired()` |
 | `Gui/Install.au3` | 执行界面（日志框为 RichEdit，按级别着色） | `GuiInstall_Run()` |
 
 > **`Include/Gui/` 为什么拆成 6 个文件**：一个配置窗口同时要管界面构建、交互、状态同步、
@@ -175,6 +189,21 @@ auto-install/
 > `Precheck.au3` 只做入口（`#include` 各子模块 + `Precheck_RunAll()`）；
 > 各子模块用各自的前缀（`PrecheckSystem_` / `PrecheckNetwork_` / `PrecheckPower_` /
 > `PrecheckDriver_` / `PrecheckAccount_`），并**各自 `#include "Base.au3"`**。
+
+> **`Include/Config/` 为什么拆开**：配置模块原本是单个 `Config.au3`（550 行以上），
+> 把「通用配置项」「安装包扫描」「分组」混在一起。按**配置域**拆成 4 个子模块后
+> 每个文件 100~200 行，改哪块容易找。分层是
+> `Shared`（底座，只依赖 `Constants` / `Common`）→ `General` / `Group` → `Packages`
+> → `Config`（入口），**基础层不反过来依赖上层**。
+>
+> 子模块的函数**沿用 `Config_` 前缀**，而不是各起一个前缀 —— 与 `Gui/` / `Precheck/`
+> 的拆法不同。原因是这些函数是配置模块**对外**的 API（`Gui/`、`Installer.au3`、
+> 总入口都在调），拆文件不该顺带改调用方。各文件头部都写明了自己负责哪一段函数。
+>
+> **踩过的坑**：`Config_DefaultRoot()`（默认安装根目录算法）一度放在 `General.au3`，
+> 但 `Config_Init()`（在 `Shared.au3`）要调它 —— 整体编译没问题，
+> **单文件 Au3Check 直接报 `undefined function`**（`check_syntax.py` 第 3 项会逐个核对）。
+> 已下沉到 `Shared.au3`。结论同上面三处：**共享的东西必须抽到各自最底层那个文件**。
 
 > **共享声明为什么要单独成文件**：放在「父文件」里整体编译是能过的（编译时父文件先声明了），
 > 但在 SciTE 里逐个浏览子模块就是一片红字 ——
@@ -194,13 +223,25 @@ auto-install/
 ```ini
 [Package]
 DisplayName=WPS Office
+Category=office
+Required=0
 ```
+
+- `DisplayName`：配置界面里的显示名，省略则用目录名。
+- `Category`：分组键，取值见 `Include/Constants.au3` 的 `$PKG_CAT_ORDER`
+  （`required` / `base` / `dev` / `debug` / `vision` / `office` / `misc`），省略归入「未分组」（`misc`）。
+  换了分组想让它排到别处，就改 `$PKG_CAT_ORDER` 里的顺序。
+- `Required`：`1` 表示**必须安装** —— 固定归入「必须安装」组、排在最前，且界面与 `config.ini`
+  都**取消不掉**它的勾选（保证出厂必装项漏不了）。省略按 `0`。
+
+> **⚠️ `package.ini` 必须保持 ASCII、不要带 BOM。** AutoIt 的 `IniRead` 按 **ANSI 代码页**
+> 读无 BOM 的文件：中文值存 UTF-8 会读成乱码，存 UTF-8 **带 BOM** 则连 `[Package]` 段都读不到。
+> 中文分组名统一放在 `Include/Config/Group.au3` 的 `Config_CategoryName()` 里映射，
+> ini 里只写 ASCII 键值。文件里的中文**注释**不受影响（注释在 `;` 之后，不参与解析）。
 
 > **整个安装包目录都不纳入版本管理**（见根目录 `.gitignore`）：安装包体积过大，
 > 而且该目录本身可配置、可以放在仓库之外。所以安装包与 `package.ini` 都跟随安装包一起管理，
 > 不随仓库分发 —— 克隆仓库后需自行创建该目录，或在配置界面把「安装包目录」指到别处。
->
-> 内容保持 ASCII，**不要写 BOM**，否则 `IniRead` 可能读不到第一段。
 
 ### 2. 编写安装脚本
 
@@ -307,7 +348,9 @@ python tools/check_docs.py     # 文档（含 docs/packages/ 索引完整性）
 | 已安装检测 | 通用流程内部用 `Installer_FindInstalled()`：先查预期路径、**再查整个系统 PATH** —— 软件可能装在别的盘，或绿色版已经挂在 PATH 上 |
 | 结果校验 | 通用流程内部做：不只看退出码，还会再确认主程序能找到 |
 | 找依赖工具 | 同样要覆盖 PATH。**凡是「定位某个外部程序」的逻辑，一律「常见位置 → 系统 PATH」两级查找**，只查固定目录会漏判（参考 `Common_Find7Zip()`） |
-| 执行顺序 | 由安装包目录的扫描顺序（目录名排序）决定，与 `#include` 的先后无关 |
+| 显示名 / 分组 / 必须安装 | 都写在 `package.ini` 里（见本节第 1 步），界面只读不写；安装脚本不参与 |
+| 分组顺序 | 由 `$PKG_CAT_ORDER` 决定：「必须安装」固定第一，其余按表内先后，表里没有的分组接在最后（按扫描顺序） |
+| 执行顺序 | 由安装包目录的扫描顺序（目录名排序）决定，与 `#include` 的先后无关；与列表里的分组显示顺序无关 |
 
 > 未写安装脚本的软件**不会报错中断**，只会在日志中标记为「跳过」，并提示需要补充的模块名。
 
@@ -387,7 +430,7 @@ python tools/check_docs.py     # 文档（含 docs/packages/ 索引完整性）
 | `$APP_` | 应用信息 | `$APP_NAME`、`$APP_COMPANY` |
 | `$ENV_` / `$DIR_` / `$FILE_` | 环境变量、目录名、文件名 | `$ENV_INSTALL_BASE`、`$DIR_LOGS`、`$FILE_CONFIG` |
 | `$INI_` | 配置文件段名与键名 | `$INI_SEC_GENERAL`、`$INI_KEY_ROOT` |
-| `$PKG_` / `$REG_` | 数组列索引 | `$PKG_COL_ENABLED`、`$REG_COL_FUNC` |
+| `$PKG_` / `$REG_` | 数组列索引；分组键与分组顺序 | `$PKG_COL_ENABLED`、`$PKG_CAT_ORDER`、`$PKG_CAT_REQUIRED`、`$REG_COL_FUNC` |
 | `$LOG_` | 日志级别、格式与界面颜色 | `$LOG_LEVEL_WARN`、`$LOG_LEVEL_WIDTH`、`$LOG_COLOR_ERROR` |
 | `$RUN_` | 外部命令返回码、超时与等待心跳 | `$RUN_ERR_TIMEOUT`、`$TIMEOUT_INSTALL`、`$RUN_HEARTBEAT_LOG_SEC` |
 | `$PRECHK_` | 前置检查（注册表键、防火墙规则名、内置组名等） | `$PRECHK_RDP_KEY`、`$PRECHK_FW_ICMP`、`$PRECHK_ADMIN_GROUP` |
@@ -502,5 +545,6 @@ ping 规则：已存在      RDP 规则：不存在      远程桌面：已开�
 | **`StringRegExp` 的 flag 3** | 返回**纯匹配数组（0 基，没有计数元素）**：`$a[0]` 是第一个匹配值，匹配个数要用 `UBound()` 取。别当成「带计数的数组」。 |
 | **顶层代码用 `Global`** | 函数之外（脚本顶层）声明变量要用 `Global`；写 `Local` 会报 `'Local' specifier in global scope`。 |
 | **解析外部命令输出** | `powercfg` / `netsh` / `wmic` 的输出格式（含本地化文字）只有真跑才知道。改动后跑 `tools\precheck_smoke.au3` 验证。 |
-| **RichEdit 着色** | 执行界面的日志框是 RichEdit，用于按级别着色。三个坑：① 颜色是 **COLORREF(BGR)**，GUI 函数用的才是 RGB（`Logger_RgbToColorRef()` 负责转换）；② `_GUICtrlRichEdit_GetTextLength()` 默认返回**字节数**，要字符数得传 `$bChars = True`（`SetSel` 用字符位置）；③ 设色必须**先追加 → 选中新追加的范围 → 再上色**，反过来会整体错位一行；`_GUICtrlRichEdit_GetFirstCharPosOnLine()` 的行号是 **1 基**。 |
+| **RichEdit 着色** | 执行界面的日志框是 RichEdit，用于按级别着色。坑：① 颜色是 **COLORREF(BGR)**，GUI 函数用的才是 RGB（`Logger_RgbToColorRef()` 负责转换）；② 设色必须**先追加 → 选中新追加的范围 → 再上色**，反过来会整体错位一行；③ **千万别用 `_GUICtrlRichEdit_GetTextLength()` 算 `SetSel` 的位置**（详见下一行「RichEdit 字符坐标系」）；`_GUICtrlRichEdit_GetFirstCharPosOnLine()` 的行号是 **1 基**。 |
+| **RichEdit 字符坐标系（串色根因）** | RichEdit 有**三套不同的字符计数**，混用就会逐行累积偏移 → 日志「从某一行开始串色」。① `_GUICtrlRichEdit_GetTextLength($h, True, True)`：**中文等宽字符每个多算 1**（实测一行含 3 个中文时报 43，真实 40）；② `StringLen(GetText(...))`：行尾 `@CRLF` 算 **2** 个；③ `SetSel` / `GetSel` 的**内部坐标**：`@CRLF` 算 **1** 个，**只有这套是 SetSel 认的**。正确做法：**不要自己算位置**，追加后用 `_GUICtrlRichEdit_GetSel()` 读回真实末尾（追加后光标在末尾），着色区间取 `[上次末尾, 本次末尾)`，全程只用第 ③ 套坐标。见 `Logger_Write()`。 |
 | **静默参数实测** | 不同渠道 / 版本的安装包静默参数可能不同，批量使用前必须在目标系统实测。 |

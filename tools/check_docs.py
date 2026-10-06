@@ -40,6 +40,15 @@ PLACEHOLDER_NAMES = {"Install_XXX", "Action_XXX", "Action_CleanTemp"}
 # 以 "_" 结尾的一定是前缀引用，不是真实常量名（本项目常量名不以 "_" 结尾）
 PLACEHOLDER_CONST_RE = re.compile(r"^\$[A-Z0-9_]+_$")
 
+# AutoIt 官方 Include 里定义的内置常量（文档里引用它们是合理的，不在本项目源码里定义）。
+# 只列本项目文档实际用到的那几个，避免把本项目的拼写错误也放过。
+AUTOIT_BUILTIN_CONSTS = {
+    "$KEYWORD_NULL",        # AutoItConstants.au3
+    "$KEYWORD_DEFAULT",     # AutoItConstants.au3
+    "$FILE_UTF8",           # FileConstants.au3
+    "$STR_REGEXP",          # StringConstants.au3
+}
+
 # 反引号里以这些命令开头的，是命令行而不是文件路径
 COMMAND_PREFIXES = ("python ", "python3 ", "py ", "node ", "npm ", "git ", "cd ",
                     "AutoIt3.exe ", "AutoIt3_x64.exe ", "Au3Check.exe ", "Aut2exe_x64.exe ")
@@ -99,6 +108,8 @@ def check_symbols(md_files: list[Path], body: dict[Path, str], au3: str) -> list
 
         for c in sorted(set(re.findall(r"(\$[A-Z][A-Z0-9_]+)\b", t))):
             if c in defined_consts:
+                continue
+            if c in AUTOIT_BUILTIN_CONSTS:
                 continue
             if PLACEHOLDER_CONST_RE.match(c):
                 continue

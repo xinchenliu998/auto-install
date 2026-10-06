@@ -5,6 +5,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | Everything |
+| 分组 | 必须安装（`required`） |
 | 版本 | 1.4.1.1032（x86） |
 | 安装包 | `packages/everything/Everything-1.4.1.1032.x86-Setup.exe` |
 | 安装脚本 | [`Include/Install/everything.au3`](../../Include/Install/everything.au3) |

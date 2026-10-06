@@ -10,7 +10,7 @@
 ;   $DIR_    目录名
 ;   $FILE_   文件名
 ;   $INI_    配置文件段名 / 键名
-;   $PKG_    软件列表数组列索引
+;   $PKG_    软件列表数组列索引、分组键与分组顺序
 ;   $REG_    安装注册表数组列索引
 ;   $LOG_    日志级别、格式与界面颜色
 ;   $RUN_    外部命令执行返回码、轮询与超时
@@ -76,6 +76,8 @@ Global Const $INI_KEY_PKGDIR   = "PackagesDir"    ; 安装包所在目录
 Global Const $INI_KEY_COPYSRC  = "CopySourceDir"  ; 资源拷贝源目录
 Global Const $INI_KEY_COPYDST  = "CopyDestDir"    ; 资源拷贝目标目录
 Global Const $INI_KEY_DISPLAY  = "DisplayName"
+Global Const $INI_KEY_CATEGORY = "Category"       ; package.ini：分组键（取值见 $PKG_CAT_ORDER）
+Global Const $INI_KEY_REQUIRED = "Required"       ; package.ini：是否必须安装（1 = 是）
 Global Const $INI_KEY_USER     = "UserName"       ; 开机账户用户名
 Global Const $INI_KEY_PASS     = "Password"       ; 开机账户密码（明文，config.ini 不入库）
 
@@ -89,11 +91,44 @@ Global Const $INI_DEFAULT_ON   = "1"            ; 新扫描到的软件默认勾
 ; ------------------------------------------------------------------------------
 ; 软件列表数组列索引（Config_* 系列函数使用）
 ; ------------------------------------------------------------------------------
-Global Const $PKG_COL_FOLDER  = 0               ; packages 下的目录名
-Global Const $PKG_COL_DISPLAY = 1               ; 显示名
-Global Const $PKG_COL_ENABLED = 2               ; 是否勾选（1/0）
-Global Const $PKG_COL_PATH    = 3               ; 目录完整路径
-Global Const $PKG_COL_COUNT   = 4
+Global Const $PKG_COL_FOLDER   = 0              ; packages 下的目录名
+Global Const $PKG_COL_DISPLAY  = 1              ; 显示名
+Global Const $PKG_COL_ENABLED  = 2              ; 是否勾选（1/0）
+Global Const $PKG_COL_PATH     = 3              ; 目录完整路径
+Global Const $PKG_COL_CATEGORY = 4              ; 分组键
+Global Const $PKG_COL_REQUIRED = 5              ; 是否必须安装（1/0）
+Global Const $PKG_COL_COUNT    = 6
+
+; ------------------------------------------------------------------------------
+; 软件分组（配置界面的软件列表按分组显示）
+; ------------------------------------------------------------------------------
+; 分组与「必须安装」写在安装包目录下的 <软件目录>\package.ini：
+;
+;     [Package]
+;     DisplayName=WPS Office
+;     Category=office          ; 分组键，取值见 $PKG_CAT_ORDER
+;     Required=0               ; 1 = 必须安装
+;
+; 【为什么 package.ini 里写 ASCII 键，而不是直接写中文分组名】
+;   实测（AutoIt 的 IniRead 按 ANSI 代码页读无 BOM 的文件）：
+;     · 存成 UTF-8 无 BOM —— 中文读出来是乱码；
+;     · 存成 UTF-8 带 BOM —— 更糟，连 [Package] 段都读不到；
+;     · 存成 ANSI/GBK    —— 正确。
+;   所以 package.ini 一律保持 ASCII，中文显示名集中在本文件 + Config_CategoryName()。
+;
+; 【新增一个分组】三处各补一行：
+;   1. 下面 $PKG_CAT_ORDER 里插好位置；
+;   2. Config\Group.au3 的 Config_CategoryName() 里补上中文名；
+;   3. 各软件的 package.ini 把 Category 改成新键。
+
+Global Const $PKG_CAT_REQUIRED = "required"     ; 「必须安装」组的键：Required=1 的软件自动归入，且勾选被锁定
+Global Const $PKG_CAT_DEFAULT  = "misc"         ; 兜底分组键：package.ini 里没写 Category 的软件都归到它，界面显示「未分组」
+
+; 分组的显示顺序（键名，逗号分隔）：按此表从上到下排列；表里没有的分组接在后面（按扫描顺序）。
+; 「必须安装」组无论写在哪，都固定排第一。
+;   debug  —— 调试 / 排障工具
+;   vision —— 机器视觉（Machine Vision）专用软件
+Global Const $PKG_CAT_ORDER = "required,base,dev,debug,vision,office,misc"
 
 ; ------------------------------------------------------------------------------
 ; 安装函数注册表数组列索引（Installer_* 系列函数使用）

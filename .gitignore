@@ -88,3 +88,4 @@ $RECYCLE.BIN/
 # 里面的开发约定已经沉淀到 AGENTS.md 与 docs/，无需入库。
 # 如需团队共享这份笔记，删掉下面这行即可。
 /.workbuddy-ai/
+/.workbuddy/

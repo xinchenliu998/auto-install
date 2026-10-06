@@ -37,13 +37,15 @@ auto-install/
 ├── .gitignore          # 忽略安装包、运行产物、编译产物等
 ├── AGENTS.md           # 面向 AI 编码助手的开发约定
 ├── CLAUDE.md           # 同上（Claude 入口，指向 AGENTS.md）
-├── docs/               # 项目文档
+├── docs/               # 项目文档（使用说明 / 开发规范 / 各软件说明）
 ├── Include/            # AutoIt 脚本：框架模块 + 界面层 + 各软件安装脚本
 ├── packages/           # 各软件的安装包（整个目录不入库）
-└── tools/              # 辅助脚本：语法检查 + 源码静态自检 + 文档一致性检查 + 前置检查冒烟测试
+└── tools/              # 辅助脚本：三项自检 + 前置检查冒烟测试
 ```
 
 > 详细的目录与模块说明见 [`docs/development.md`](docs/development.md)。
+> 配置相关代码按配置域拆成了 `Include/Config/`（`Shared` / `General` / `Packages` / `Group`），
+> `Include/Config.au3` 只是入口。
 
 ---
 

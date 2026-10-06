@@ -5,6 +5,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | 7-Zip |
+| 分组 | 必须安装（`required`） |
 | 版本 | 26.04（x64） |
 | 安装包 | `packages/7zip/7z2604-x64.exe` |
 | 安装脚本 | [`Include/Install/7zip.au3`](../../Include/Install/7zip.au3) |

@@ -49,7 +49,43 @@
     但在 SciTE 里逐个浏览子模块就是一片红字（`Foo_Bar(): undefined function` /
     `$g_x: undeclared global variable`）。做法是把共享声明抽成独立文件，
     由需要它的每个文件自己 `#include`：`Include/Precheck/Base.au3`、
-    `Include/Gui/ConfigShared.au3`。`python tools/check_syntax.py` 第 3 项会逐个核对。
+    `Include/Gui/ConfigShared.au3`、`Include/Config/Shared.au3`。
+    `python tools/check_syntax.py` 第 3 项会逐个核对。
+
+11. **配置模块已按配置域拆分，改配置相关代码要对号入座。**
+    `Include/Config.au3` 只是入口（只放 `Config_Load()` / `Config_Save()`），
+    实体在 `Include/Config/` 下的 4 个子模块：
+
+    | 文件 | 管什么 |
+    | --- | --- |
+    | `Config/Shared.au3` | 全局状态 `$g_*` + 通用小工具（含 `Config_DefaultRoot()`） |
+    | `Config/General.au3` | 安装根目录 / 资源拷贝 / 开机账户 |
+    | `Config/Packages.au3` | 安装包目录 + 软件列表（扫描 / 访问器 / 勾选） |
+    | `Config/Group.au3` | 分组键 / 顺序 / 中文显示名 +「必须安装」 |
+
+    分层：`Shared` → `General` / `Group` → `Packages` → `Config`（入口）。
+    **共享的东西必须放最底层的 `Shared.au3`**，否则单文件检查会报 `undefined function`。
+    子模块函数一律沿用 `Config_` 前缀（它们是模块对外 API，被 `Gui/`、`Installer.au3`、
+    总入口调用），**拆文件不该顺带改调用方**。
+
+12. **外部命令返回 0 ≠ 状态已生效。**
+    设置类操作（密码策略、电源、远程桌面等）**必须回读确认**，不能只看退出码。
+    典型：`Set-LocalUser` / `Get-LocalUser` 属 PowerShell 的 **LocalAccounts 模块**，
+    精简版 / 老版本工控机上**常常没装**，调用报 `CommandNotFoundException` 且退出码为 `1` ——
+    所以「Set-LocalUser 不可用」是**预期情况**，必须有回退路径。判定结果要**真查目标属性**
+    （如读 WMI `Win32_UserAccount.PasswordExpires` 确认密码是否真不过期），
+    否则会出现「[更改后] 密码会过期」紧跟「[OK] 检查通过」的自相矛盾日志。
+
+13. **RichEdit 有三套字符坐标系，混用会导致日志逐行「串色」。**
+    ① `_GUICtrlRichEdit_GetTextLength($h, True, True)` —— 中文每个多算 1；
+    ② `StringLen(GetText(...))` —— `@CRLF` 算 2；
+    ③ `SetSel` / `GetSel` 的内部坐标 —— `@CRLF` 算 1，**只有这套 SetSel 认**。
+    **不要自己算位置**：追加后用 `_GUICtrlRichEdit_GetSel()` 读回真实末尾，
+    着色区间取 `[上次末尾, 本次末尾)`。见 `Logger_Write()`。
+
+14. **给 RichEdit 上色的顺序**：必须**先追加文字 → 再选中刚追加的范围 → 最后设色**。
+    反过来（先设色再追加）会因为 `SCF_SELECTION` 作用于光标前一个字符而整体错位一行。
+    颜色常量是 **COLORREF(BGR)**，与 GUI 函数的 RGB 不同，用 `Logger_RgbToColorRef()` 转换。
 
 ---
 

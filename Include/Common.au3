@@ -7,6 +7,7 @@
 
 #include-once
 
+#include <AutoItConstants.au3>
 #include <FileConstants.au3>
 #include <StringConstants.au3>
 

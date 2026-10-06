@@ -5,6 +5,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | Sublime Text |
+| 分组 | 开发工具（`dev`） |
 | 版本 | Build 4215（x64） |
 | 安装包 | `packages/Sublime Text/sublime_text_build_4215_x64_setup.exe` |
 | 安装脚本 | [`Include/Install/sublime-text.au3`](../../Include/Install/sublime-text.au3) |
