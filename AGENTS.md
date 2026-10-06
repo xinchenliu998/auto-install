@@ -42,17 +42,41 @@
 4. **编译目标是 x64。**
    否则 `@ProgramFilesDir` 会指向 `Program Files (x86)`，导致安装结果校验全部失败。
 
-5. **本机通常没有 AutoIt，无法编译。**
-   不要声称「已编译通过」。改完必须跑第四节的自检脚本，并在回复里说明「未经编译验证」。
+5. **本机装了 AutoIt（`D:\Program Files (x86)\AutoIt3`），语法必须用 `Au3Check.exe` 真查一遍。**
+   `tools/check_syntax.py` 已封装好，改完必跑。
+   需要更强的验证时，也可以用 AutoIt 目录下 `Aut2Exe` 里的 `Aut2exe_x64.exe` 真编译一次
+   （能同时验证 include 链与 x64 目标）。
+   但无论哪种，都**不要**声称「已实测通过」—— 行为、界面布局、外部命令参数仍要在目标机上验证。
+   编译产物 `auto-install.exe` 已在 `.gitignore` 里，**不要提交、也不要留在仓库目录**。
+
+6. **每个 `.au3` 都要能「单独打开不报错」。**
+   共享的常量 / 变量 / 函数不要留在父文件里 —— 整体编译不报错（编译时父文件先声明了），
+   但在 SciTE 里逐个浏览子模块就是一片红字：
+   `Foo_Bar(): undefined function` / `$g_x: undeclared global variable`。
+   做法：**把共享声明抽成独立文件，由需要它的每个文件自己 `#include`** ——
+   参考 `Include\Precheck\Base.au3`、`Include\Gui\ConfigShared.au3`。
+   `tools/check_syntax.py` 第 3 项会逐个文件跑 Au3Check 核对这一点。
 
 ---
 
 ## 四、改完必须跑的自检
 
 ```bash
-python tools/check_au3.py     # 源码
-python tools/check_docs.py    # 文档
+python tools/check_syntax.py   # 语法（调 AutoIt 官方 Au3Check.exe）
+python tools/check_au3.py      # 源码
+python tools/check_docs.py     # 文档
 ```
+
+**`check_syntax.py`** —— 真正的**语法**检查，调用 AutoIt 官方的 `Au3Check.exe`：
+
+- 从总入口 `auto-install.au3` 出发，Au3Check 会自行跟进整条 `#include` 链，等于查了全部源码；
+- 顺带核对「有没有 `.au3` 没被任何 `#include` 引用」—— 这种文件会漏检；
+- 用较严的警告档位（`-w 3 -w 4 -w 5 -w 6`，都是 Au3Check 默认关闭的项），当前项目是 0 error / 0 warning；
+- 退出码：0 = 通过；1 = 有语法错误或漏检文件；2 = 没找到 `Au3Check.exe`（此时**不算通过**）。
+
+> **这一步不能省。** 下面两个脚本是文本级检查，**查不出语法错误** ——
+> 例如 `@PID`（AutoIt 里根本没这个宏，应为 `@AutoItPID`），两个脚本都放行了，
+> 只有 Au3Check 会报 `error: undefined macro`。
 
 **`check_au3.py`** —— 检查 6 项：UTF-8 BOM、块级关键字配对（能正确处理行继续符 `_`）、
 `#include` 目标存在性、项目内函数与常量是否有定义（能抓出拼写错误）、
@@ -62,10 +86,25 @@ python tools/check_docs.py    # 文档
 **`check_docs.py`** —— 检查 4 项：Markdown 相对链接、文档里提到的项目函数 / 常量是否真实存在、
 反引号引用的仓库内路径是否存在、`docs/packages/` 的索引是否登记完整。
 
-两者退出码 0 表示通过。**改了代码或文档后都要跑。**
+三者退出码 0 表示通过。**改了代码或文档后都要跑。**
 
-> 这两个脚本**只能**做静态检查。语法错误、API 用法、界面布局、以及描述性内容是否过时，
-> 仍需人工判断或在装有 AutoIt 的机器上实测。
+### 解析外部命令输出的代码，必须真跑一遍
+
+前置检查里有不少「解析外部命令输出」的逻辑（`powercfg /query`、`netsh ... show rule`、
+WMI 查询）。**这类代码静态检查和语法检查都查不出对错** —— 曾经因为把
+`StringRegExp(..., 3)` 的返回值理解错，电源状态一直显示「无法读取」，编译却毫无问题。
+
+所以提供了只读冒烟测试（**不开启远程桌面、不改防火墙、不改电源、不建账户**）：
+
+```bash
+AutoIt3_x64.exe tools\precheck_smoke.au3
+```
+
+跑完看 `%TEMP%\precheck-smoke.txt`，里面是各探针在这台机器上真实读到的值。
+新增或改动任何探针函数后，都应该跑一次确认能读到值。
+
+> 语法检查通过 ≠ 行为正确。AutoIt API 用法、界面布局、外部命令参数、以及描述性内容是否过时，
+> 仍需人工判断或在目标机上实测。
 
 ---
 
@@ -76,10 +115,18 @@ auto-install.au3              总入口（配置界面 + 调度），几乎不�
 Include/
   Constants.au3               全局常量，唯一来源
   Common.au3                  基础工具：权限、路径、环境变量、外部命令
-  Logger.au3                  日志（文件 + 界面双写）
+  Logger.au3                  日志（文件 + 界面双写；界面按级别着色）
   Config.au3                  配置读写 + 安装包目录扫描
   Installer.au3               安装调度 + 通用安装流程 + 安装辅助（解压、写 PATH、等待心跳）
-  Gui/Config.au3              配置界面：入口 + 消息循环（控件 ID 与状态在此声明）
+  Precheck.au3                前置检查入口：Precheck_RunAll()
+  Precheck/Base.au3           前置检查共享底座：状态 + 辅助（各子模块各自 include）
+  Precheck/System.au3         前置检查 1/5：系统版本与内部版本号
+  Precheck/Network.au3        前置检查 2/5：ping 与远程桌面
+  Precheck/Power.au3          前置检查 3/5：电源（永不睡眠 / 永不休眠）
+  Precheck/Driver.au3         前置检查 4/5：设备驱动异常
+  Precheck/Account.au3        前置检查 5/5：开机账户
+  Gui/ConfigShared.au3        配置界面共享声明：控件 ID + 界面状态（各子模块各自 include）
+  Gui/Config.au3              配置界面：入口 + 消息循环
   Gui/ConfigLayout.au3        配置界面：界面构建
   Gui/ConfigState.au3         配置界面：状态同步 + 校验回写
   Gui/PackageList.au3         配置界面：软件列表控件（带复选框的 ListView）
@@ -88,16 +135,30 @@ Include/
   Install/<软件>.au3          各软件的具体安装脚本（自注册）
 packages/<软件>/              安装包（默认位置，可在配置界面改；整个目录不入库）
 docs/                         文档（细节都在这里）
+tools/check_syntax.py         语法检查（调 AutoIt 官方 Au3Check.exe）
 tools/check_au3.py            源码静态自检
 tools/check_docs.py           文档一致性检查
+tools/precheck_smoke.au3      前置检查只读探针冒烟测试（不修改系统，需 AutoIt 环境）
 ```
 
-**分层原则**：`Constants` 无依赖 → `Common`/`Logger` 是基础层 → `Installer` 是业务层 →
+**分层原则**：`Constants` 无依赖 → `Common`/`Logger` 是基础层 → `Installer`/`Precheck` 是业务层 →
 `Install/*` 是最外层实现。**基础层不要反过来依赖上层**（曾因为把带日志的解压函数放进
 `Common.au3` 而与 `Logger.au3` 形成循环 include，已改到 `Installer.au3`）。
 
-`Gui/` 是界面层，只负责界面与交互，不写安装逻辑；内部按「入口 / 布局 / 状态 / 列表控件」拆开。
-**控件 ID 与界面状态变量统一在 `Gui/Config.au3` 里声明**，同目录其他文件直接用，不要各自再声明一份。
+`Precheck.au3` 是「整批前置操作」的范例：一个模块收一类检查，对外只暴露 `Precheck_RunAll()`，
+由界面层在安装前调用；**不要在 `Installer_RunAll()` 里堆前置/后置操作**。新增同类模块时照此办理。
+
+`Precheck.au3` 与 `Include\Precheck\` 的分法同 `Include\Gui\`：**共享声明抽成独立文件
+（`Precheck\Base.au3` / `Gui\ConfigShared.au3`），由需要它的每个文件自己 `#include`**；
+入口只放入口，子模块一个文件一项职责，各自独立函数前缀（`PrecheckSystem_` / `PrecheckNetwork_` /
+`PrecheckPower_` / `PrecheckDriver_` / `PrecheckAccount_`）。
+
+> **子模块必须能「单独打开不报错」**（见第三节硬约束 6）——
+> 共享声明不要留在父文件里，否则在 SciTE 里逐个浏览每个子模块都是红字。
+
+`Gui/` 是界面层，只负责界面与交互，不写安装逻辑；内部按「共享声明 / 入口 / 布局 / 状态 / 列表控件」拆开。
+**控件 ID 与界面状态变量统一在 `Gui/ConfigShared.au3` 里声明**，同目录其他文件各自 include，
+不要各自再声明一份。
 
 ---
 
@@ -109,7 +170,9 @@ tools/check_docs.py           文档一致性检查
     `Include/Install/<软件>.au3` 顶部，前缀取软件名（`$ZIP7_` / `$SQLITE_` / `$WPS_`）。
 - **命名**：安装类函数 `Install_`，操作类 `Action_`，工具类按功能命名。
   模块内部函数统一加模块名前缀（`Common_` / `Logger_` / `Config_` / `Installer_` /
-  `GuiConfig_` / `GuiConfigLayout_` / `GuiConfigState_` / `GuiPackageList_` / `GuiInstall_`）。
+  `Precheck_` / `PrecheckSystem_` / `PrecheckNetwork_` / `PrecheckPower_` / `PrecheckDriver_` /
+  `PrecheckAccount_` / `GuiConfig_` / `GuiConfigLayout_` / `GuiConfigState_` / `GuiPackageList_` /
+  `GuiInstall_`）。
 - **取安装包路径**一律用 `Installer_PackagePath()` —— 它走的是配置里的「安装包目录」
   （可在界面改、可指向仓库之外），不要自己拼 `@ScriptDir\packages`。
 - **每个 `.au3`** 顶部写 `#include-once`，并显式 `#include` 自己用到的模块（含 `Constants.au3`）。
@@ -186,7 +249,7 @@ tools/check_docs.py           文档一致性检查
 
 4. `docs/packages/<软件名>.md` 按模板补文档，并在 `docs/packages/README.md` 索引表登记一行。
 
-5. 跑 `python tools/check_au3.py`。
+5. 跑 `python tools/check_syntax.py`（语法）与 `python tools/check_au3.py`（源码自检）。
 
 **安装位置约定**：安装包类软件装到各自的官方默认路径（多数在 Program Files，也有落在用户目录的，如 DBX）；
 只有**绿色软件**才解压到 `$sInstallRoot`（即 `%LOCALAPPDATA%\BJ\<软件名>`）。
@@ -211,7 +274,15 @@ tools/check_docs.py           文档一致性检查
 | 只判断固定安装路径就认定「未安装」 | 用 `Installer_FindInstalled()`，它会连带查整个系统 PATH |
 | 找依赖工具（如解压用的 7-Zip）只查固定目录 | 用 `Common_Find7Zip()` / `Common_Which()`，同样要覆盖 PATH |
 | 在安装脚本里又抄一遍「检测 / 执行 / 校验」 | 用 `Installer_InstallSilent()` / `Installer_InstallGreen()`，脚本里只填参数 |
-| 声称「已编译通过」 | 本机没 AutoIt，只能静态自检，回复里要说明 |
+| 改了 `.au3` 却不跑语法检查 | 跑 `python tools/check_syntax.py`（Au3Check）；文本级脚本查不出语法错误 |
+| 共享声明留在父文件里 | 整体编译能过，但子模块单独打开全是红字。抽成独立文件让子模块各自 `#include` |
+| 用了不存在的宏（如 `@PID`，应为 `@AutoItPID`） | 只有 Au3Check 能抓到，必须跑语法检查 |
+| 解析外部命令输出的代码只靠静态检查 | 必须真跑 `tools\precheck_smoke.au3` 冒烟测试（只读，不改系统） |
+| 把 `StringRegExp(..., 3)` 的返回值当成「带计数的数组」 | flag 3 返回**纯匹配数组（0 基，没有计数元素）**，个数用 `UBound()` 取；`$a[0]` 是第一个匹配值 |
+| 在脚本顶层（函数外）用 `Local` 声明变量 | 顶层要用 `Global`，否则 Au3Check 报 `'Local' specifier in global scope` |
+| 给 RichEdit 设颜色时「先设色再追加文字」 | 颜色会整体错位一行（`SCF_SELECTION` 作用在光标**前**一个字符）。要**先追加 → 选中新追加的范围 → 再上色** |
+| RichEdit 的颜色 / 长度口径搞错 | 颜色是 **COLORREF(BGR)**，不是 GUI 函数的 RGB（用 `Logger_RgbToColorRef()` 转）；`_GUICtrlRichEdit_GetTextLength()` 默认返回**字节数**，要字符数得传 `$bChars = True` |
+| 声称「已编译通过」「已实测通过」 | 语法检查只能证明语法正确；行为、界面、外部命令参数需在目标机实测 |
 
 ---
 
@@ -231,5 +302,5 @@ tools/check_docs.py           文档一致性检查
 ## 十、回复要求
 
 - 改了哪些文件、为什么改，要写清楚。
-- 明确区分「静态自检通过」与「编译/实测通过」—— 后者需要用户在自己的机器上做。
+- 明确区分「语法检查通过」「静态自检通过」与「实测通过」—— 最后一项需要用户在目标机上做。
 - 静默安装参数属于**建议值**，不同渠道/版本的安装包可能不同，必须提示用户实测确认。

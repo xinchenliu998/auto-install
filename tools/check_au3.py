@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """auto-install 项目的 AutoIt 源码静态校验。
 
-本机通常没有 AutoIt 环境，无法编译验证，因此用静态检查兜底。
+本脚本是**文本级**检查，不解析语法，因此无法替代真正的语法检查 ——
+语法检查请用 tools/check_syntax.py（调 AutoIt 官方 Au3Check.exe）。
+典型的漏检：`@PID`（AutoIt 没有这个宏，应为 `@AutoItPID`）本脚本会放行。
+
 检查项：
 
   1. 编码      —— 每个 .au3 是否带 UTF-8 BOM（缺了会导致中文乱码）
@@ -36,7 +39,10 @@ BUILTIN_CONST_IGNORE = (
 # 项目内函数前缀（用于区分 AutoIt 内置函数与 UDF）
 FUNC_PREFIXES = (
     "Common_", "Logger_", "Config_", "Installer_",
-    "GuiConfig_", "GuiInstall_", "Install_", "Action_", "Main",
+    "Precheck_", "PrecheckSystem_", "PrecheckNetwork_", "PrecheckPower_",
+    "PrecheckDriver_", "PrecheckAccount_",
+    "GuiConfig_", "GuiConfigLayout_", "GuiConfigState_", "GuiPackageList_", "GuiInstall_",
+    "Install_", "Action_", "Main",
 )
 
 OPEN_CLOSE = {
@@ -47,9 +53,10 @@ CLOSE_OPEN = {v: k for k, v in OPEN_CLOSE.items()}
 
 
 def collect_files(root: Path) -> list[Path]:
-    r"""收集所有 .au3：根目录 + Include\ 下的全部层级（含 Install\、Gui\ 子目录）。"""
+    r"""收集所有 .au3：根目录 + Include\ 全部层级 + tools\ 下的独立工具脚本。"""
     files: list[Path] = sorted(root.glob("*.au3"))
     files += sorted((root / "Include").rglob("*.au3"))
+    files += sorted((root / "tools").glob("*.au3"))
     return files
 
 
@@ -293,7 +300,8 @@ def main() -> int:
         return 1
 
     print("全部检查通过。")
-    print("提醒：本脚本只能做静态检查，语法/行为仍需在装有 AutoIt 的机器上编译并实测。")
+    print("提醒：本脚本只做文本级检查，**查不出语法错误**；")
+    print("      请另跑 python tools/check_syntax.py（Au3Check）做真正的语法检查。")
     return 0
 
 

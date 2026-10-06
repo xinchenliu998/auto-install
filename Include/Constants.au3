@@ -12,8 +12,13 @@
 ;   $INI_    配置文件段名 / 键名
 ;   $PKG_    软件列表数组列索引
 ;   $REG_    安装注册表数组列索引
-;   $LOG_    日志级别与格式
+;   $LOG_    日志级别、格式与界面颜色
 ;   $RUN_    外部命令执行返回码、轮询与超时
+;   $TIMEOUT_ 各类操作超时
+;   $SILENT_ 安装器静默参数
+;   $PRECHK_ 前置检查（注册表键、防火墙规则名、内置组名等）
+;   $ACCT_   开机账户默认值
+;   $ROBOCOPY_ robocopy 相关
 ;   $MB_     消息框标志与返回值
 ;   $EXIT_   进程退出码
 ;   $CLI_    命令行开关
@@ -63,6 +68,7 @@ Global Const $FILE_7ZIP_EXE    = "7z.exe"
 Global Const $INI_SEC_GENERAL  = "General"
 Global Const $INI_SEC_PACKAGES = "Packages"
 Global Const $INI_SEC_PACKAGE  = "Package"
+Global Const $INI_SEC_ACCOUNT  = "Account"        ; 开机账户（前置检查用）
 
 Global Const $INI_KEY_NAME     = "SoftwareName"
 Global Const $INI_KEY_ROOT     = "InstallRoot"
@@ -70,6 +76,13 @@ Global Const $INI_KEY_PKGDIR   = "PackagesDir"    ; 安装包所在目录
 Global Const $INI_KEY_COPYSRC  = "CopySourceDir"  ; 资源拷贝源目录
 Global Const $INI_KEY_COPYDST  = "CopyDestDir"    ; 资源拷贝目标目录
 Global Const $INI_KEY_DISPLAY  = "DisplayName"
+Global Const $INI_KEY_USER     = "UserName"       ; 开机账户用户名
+Global Const $INI_KEY_PASS     = "Password"       ; 开机账户密码（明文，config.ini 不入库）
+
+; 开机账户默认值：首次运行 / 配置里未写时生效，确保每台机器都有一个确定的管理员账户。
+; 前置检查会把该账户加入 Administrators 组（系统管理员）。
+Global Const $ACCT_DEF_USER    = "admin"
+Global Const $ACCT_DEF_PASS    = "BJ88888888"
 
 Global Const $INI_DEFAULT_ON   = "1"            ; 新扫描到的软件默认勾选
 
@@ -99,6 +112,16 @@ Global Const $LOG_LEVEL_ERROR = "ERROR"
 Global Const $LOG_LEVEL_STEP  = "STEP"
 Global Const $LOG_LEVEL_WIDTH = 5               ; 级别字段对齐宽度
 
+; 日志级别对应的界面文字颜色（**RGB 写法**，与 $UI_COLOR_* 同一套）。
+; 执行界面的日志框是 RichEdit 控件，写入前由 Logger_RgbToColorRef() 转成 COLORREF(BGR)
+; —— RichEdit 的 _GUICtrlRichEdit_SetCharColor 收的是 COLORREF，不是 AutoIt GUI 用的 RGB。
+Global Const $LOG_COLOR_DEFAULT = 0x333333      ; 无级别的普通行（分隔线等）
+Global Const $LOG_COLOR_INFO    = 0x333333      ; 常规信息：深灰
+Global Const $LOG_COLOR_OK      = 0x1E8449      ; 成功：绿
+Global Const $LOG_COLOR_WARN    = 0xB9770E      ; 警告：橙
+Global Const $LOG_COLOR_ERROR   = 0xC0392B      ; 错误：红（与 $UI_COLOR_ERROR 一致）
+Global Const $LOG_COLOR_STEP    = 0x1F618D      ; 阶段标题：蓝
+
 ; ------------------------------------------------------------------------------
 ; 外部命令执行
 ; ------------------------------------------------------------------------------
@@ -117,9 +140,27 @@ Global Const $TIMEOUT_INSTALL      = 600000     ; 单个软件安装超时（10 
 Global Const $TIMEOUT_INSTALL_LONG = 1800000    ; 大体积软件安装超时（30 分钟，如 WPS）
 Global Const $TIMEOUT_UNZIP        = 600000     ; 解压超时（10 分钟）
 Global Const $TIMEOUT_COPY         = 1800000    ; 资源拷贝超时（30 分钟）
+Global Const $TIMEOUT_PRECHECK     = 120000     ; 单项前置检查命令超时（2 分钟）
 
 ; robocopy 退出码：0~7 都表示成功（0=无需拷贝，1=有文件被拷贝…），8 及以上才是错误
 Global Const $ROBOCOPY_OK_MAX      = 7
+
+; ------------------------------------------------------------------------------
+; 前置检查（Precheck.au3）
+; ------------------------------------------------------------------------------
+Global Const $PRECHK_WIN_KEY     = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+Global Const $PRECHK_RDP_KEY     = "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server"
+Global Const $PRECHK_RDP_VAL     = "fDenyTSConnections"        ; 0 = 允许远程桌面
+
+; 防火墙规则名用自建名称，不用系统内置规则的名称 —— 内置规则名（组名）随系统语言变化。
+Global Const $PRECHK_FW_ICMP     = "auto-install ICMPv4-In"    ; 放通 ping
+Global Const $PRECHK_FW_RDP      = "auto-install RDP-TCP-In"   ; 放通远程桌面 3389
+
+; 内置管理员组的 SAM 名不随系统语言变化（中文系统下同样是 Administrators）
+Global Const $PRECHK_ADMIN_GROUP = "Administrators"
+
+; 设备管理器错误码 45 = 设备当前未连接（如拔掉的 U 盘），属正常状态，不计入驱动异常
+Global Const $PRECHK_DEV_SKIP    = 45
 
 ; ------------------------------------------------------------------------------
 ; 安装器静默参数（按安装包打包工具区分，供各 Install 模块复用）
@@ -177,7 +218,9 @@ Global Const $UI_CFG_W          = 620
 Global Const $UI_CFG_MARGIN     = 16            ; 窗口左右外边距
 Global Const $UI_CFG_GRP1_Y     = 72
 
-; 「基本配置」组内的行布局（5 行输入 + 4 行灰色提示）
+; 「基本配置」组内的行布局（6 行输入 + 4 行灰色提示）
+;   行 0 软件名称 / 1 安装根目录 / 2 安装包目录 / 3 拷贝源目录 / 4 拷贝目标目录
+;   行 5 开机账户（用户名 + 密码并排，占一行）
 Global Const $UI_CFG_LABEL_W    = 76            ; 输入框左侧标签宽度
 Global Const $UI_CFG_INPUT_X    = 114
 Global Const $UI_CFG_INPUT_W    = 346
@@ -187,21 +230,23 @@ Global Const $UI_CFG_ROW_PITCH  = 34            ; 行间距
 Global Const $UI_CFG_BTN_X      = 466           ; 组内小按钮左边缘
 Global Const $UI_CFG_BTN_X2     = 532
 Global Const $UI_CFG_BTN_SM_H   = 27
-Global Const $UI_CFG_HINT_TOP   = 200           ; 第一行灰色提示相对组顶的偏移
+Global Const $UI_CFG_ACCT_INPUT_W = 168         ; 开机账户：用户名 / 密码输入框宽度（并排两个）
+Global Const $UI_CFG_ACCT_GAP     = 8           ; 开机账户：两个输入框之间的间距
+Global Const $UI_CFG_HINT_TOP   = 234           ; 第一行灰色提示相对组顶的偏移
 Global Const $UI_CFG_HINT_PITCH = 22
 Global Const $UI_CFG_HINT_H     = 18
-Global Const $UI_CFG_GRP1_H     = 298           ; = HINT_TOP + 4*HINT_PITCH + HINT_H + 14
+Global Const $UI_CFG_GRP1_H     = 332           ; = HINT_TOP + 4*HINT_PITCH + HINT_H + 14
 
 Global Const $UI_CFG_PAD        = 34            ; 组内左边距
 Global Const $UI_CFG_INNER_PAD  = 18            ; 组内右边距
 Global Const $UI_CFG_BTN_H      = 32
 
 ; 「选择要安装的软件」组 —— 固定尺寸，软件多了由列表控件自带滚动条，窗口不随之变化
-Global Const $UI_CFG_GRP2_Y     = 384
+Global Const $UI_CFG_GRP2_Y     = 418           ; = GRP1_Y + GRP1_H + GRP2_BOT
 Global Const $UI_CFG_GRP2_BAR   = 58            ; 组内工具条高度
 Global Const $UI_CFG_GRP2_BOT   = 14            ; 组底部留白
-Global Const $UI_CFG_LIST_H     = 176           ; 列表高度，约 8 行
-Global Const $UI_CFG_GRP2_H     = 248           ; = GRP2_BAR + LIST_H + GRP2_BOT
+Global Const $UI_CFG_LIST_H     = 142           ; 列表高度，约 6 行
+Global Const $UI_CFG_GRP2_H     = 214           ; = GRP2_BAR + LIST_H + GRP2_BOT
 Global Const $UI_CFG_BOTTOM_Y   = 646           ; = GRP2_Y + GRP2_H + GRP2_BOT
 Global Const $UI_CFG_BOTTOM_GAP = 18            ; 底部按钮与窗口下沿间距
 Global Const $UI_CFG_WIN_H      = 696           ; = BOTTOM_Y + BTN_H + BOTTOM_GAP

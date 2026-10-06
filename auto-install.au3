@@ -2,8 +2,9 @@
 ;  auto-install.au3  ——  auto-install 工控机出厂装机工具 · 总入口
 ; ------------------------------------------------------------------------------
 ;  执行流程：
-;      配置界面（软件名称 / 安装根目录 / 选择要安装的软件）
+;      配置界面（软件名称 / 安装根目录 / 开机账户 / 选择要安装的软件）
 ;        → 保存 config.ini
+;        → 前置检查（系统版本 / ping 与远程桌面 / 电源 / 驱动 / 开机账户）
 ;        → 按所选软件依次执行安装，输出日志
 ;
 ;  命令行参数：
@@ -26,6 +27,7 @@
 #include "Include\Logger.au3"
 #include "Include\Config.au3"
 #include "Include\Installer.au3"
+#include "Include\Precheck.au3"
 #include "Include\Gui\Config.au3"
 #include "Include\Gui\Install.au3"
 

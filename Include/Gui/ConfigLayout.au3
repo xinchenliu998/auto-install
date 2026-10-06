@@ -17,6 +17,7 @@
 #include "..\Constants.au3"
 #include "..\Common.au3"
 #include "..\Config.au3"
+#include "ConfigShared.au3"
 #include "PackageList.au3"
 
 ; ------------------------------------------------------------------------------
@@ -31,7 +32,9 @@ Func GuiConfigLayout_CreateHeader()
 EndFunc
 
 ; ------------------------------------------------------------------------------
-; 基本配置组：5 行输入 + 4 行灰色提示
+; 基本配置组：6 行输入 + 4 行灰色提示
+;   行 0 软件名称 / 1 安装根目录 / 2 安装包目录 / 3 拷贝源目录 / 4 拷贝目标目录
+;   行 5 开机账户（用户名 + 密码并排）
 ; ------------------------------------------------------------------------------
 Func GuiConfigLayout_CreateBasicGroup()
     Local $iGrpW = $UI_CFG_W - 2 * $UI_CFG_MARGIN
@@ -84,6 +87,22 @@ Func GuiConfigLayout_CreateBasicGroup()
             "留空则使用安装根目录。")
 
     $g_idCopyDstBrowse = GuiConfigLayout_MakeSmallButton("浏览...", $UI_CFG_BTN_X, $iRowY)
+
+    ; ---- 行 5：开机账户（用户名 + 密码并排，占一行）----
+    $iRowY += $UI_CFG_ROW_PITCH
+    GuiConfigLayout_MakeLabel("开机账户", $iRowY)
+
+    $g_idAcctUser = GUICtrlCreateInput(Config_UserName(), $UI_CFG_INPUT_X, $iRowY, _
+            $UI_CFG_ACCT_INPUT_W, $UI_CFG_INPUT_H)
+    GUICtrlSetTip($g_idAcctUser, "开机账户用户名（本地账户）。" & @CRLF & _
+            "前置检查会确保该账户存在：不存在则创建，并加入 " & $PRECHK_ADMIN_GROUP & " 组。")
+
+    $g_idAcctPass = GUICtrlCreateInput(Config_Password(), _
+            $UI_CFG_INPUT_X + $UI_CFG_ACCT_INPUT_W + $UI_CFG_ACCT_GAP, $iRowY, _
+            $UI_CFG_ACCT_INPUT_W, $UI_CFG_INPUT_H, $ES_PASSWORD)
+    GUICtrlSetTip($g_idAcctPass, "开机账户密码（用户名右侧）。" & @CRLF & _
+            "留空则只创建账户、不设密码，此时将无法通过远程桌面登录。" & @CRLF & _
+            "注意：密码以明文保存在 config.ini 中（该文件不入库）。")
 
     ; ---- 灰色提示 ----
     $g_idRootHint = GUICtrlCreateLabel("", $UI_CFG_INPUT_X, _

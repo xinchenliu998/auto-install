@@ -27,17 +27,22 @@ from pathlib import Path
 # 项目自己的函数前缀（用来区分 AutoIt 内置函数与 UDF）
 FUNC_PREFIXES = (
     "Common_", "Logger_", "Config_", "Installer_",
-    "GuiConfig_", "GuiInstall_", "Install_", "Action_", "Main",
+    "Precheck_", "PrecheckSystem_", "PrecheckNetwork_", "PrecheckPower_",
+    "PrecheckDriver_", "PrecheckAccount_",
+    "GuiConfig_", "GuiConfigLayout_", "GuiConfigState_", "GuiPackageList_", "GuiInstall_",
+    "Install_", "Action_", "Main",
 )
 
 # 文档里合法的「示例 / 占位」名字，不算错
 PLACEHOLDER_NAMES = {"Install_XXX", "Action_XXX", "Action_CleanTemp"}
 
-# 只写了前缀、没写具体名字的常量（如文档里的「前缀取软件名，如 $ZIP7_」）
-PLACEHOLDER_CONST_RE = re.compile(r"^\$[A-Z0-9]+_$")
+# 只写了前缀、没写具体名字的常量（如文档里的「前缀取软件名，如 $ZIP7_」「$LOG_COLOR_* 系列」）
+# 以 "_" 结尾的一定是前缀引用，不是真实常量名（本项目常量名不以 "_" 结尾）
+PLACEHOLDER_CONST_RE = re.compile(r"^\$[A-Z0-9_]+_$")
 
 # 反引号里以这些命令开头的，是命令行而不是文件路径
-COMMAND_PREFIXES = ("python ", "python3 ", "py ", "node ", "npm ", "git ", "cd ")
+COMMAND_PREFIXES = ("python ", "python3 ", "py ", "node ", "npm ", "git ", "cd ",
+                    "AutoIt3.exe ", "AutoIt3_x64.exe ", "Au3Check.exe ", "Aut2exe_x64.exe ")
 
 # 路径里的占位符片段（<软件名> / Xxx）
 PLACEHOLDER_PATH_RE = re.compile(r"xxx|[<>]", re.I)
@@ -59,6 +64,7 @@ def strip_code_blocks(text: str) -> str:
 
 def collect_au3(root: Path) -> str:
     files = sorted(root.glob("*.au3")) + sorted((root / "Include").rglob("*.au3"))
+    files += sorted((root / "tools").glob("*.au3"))
     return "\n".join(f.read_text(encoding="utf-8-sig") for f in files)
 
 

@@ -2,9 +2,13 @@
 ; Gui\Install.au3 —— 执行界面
 ; ------------------------------------------------------------------------------
 ; 职责：
-;   · 逐项执行 Installer_RunAll()，实时显示进度条与日志；
+;   · 先跑一遍前置检查（Precheck_RunAll），有问题时由操作员决定是否继续；
+;   · 再逐项执行 Installer_RunAll()，实时显示进度条与日志；
 ;   · 通过 Common_SetPump() 注册消息泵，安装期间界面保持响应；
 ;   · 结束后给出「成功 / 跳过 / 失败」汇总。
+;
+; 日志框用 **RichEdit** 控件（不是普通 Edit），这样日志可以**按级别着色** ——
+; 级别到颜色的映射在 Logger_LevelColor()，颜色常量是 Constants.au3 的 $LOG_COLOR_*。
 ;
 ; 布局尺寸 / 颜色 / 字体等一律取自 Constants.au3。
 ; ==============================================================================
@@ -17,18 +21,19 @@
 #include <StaticConstants.au3>
 #include <EditConstants.au3>
 #include <ProgressConstants.au3>
-#include <GuiEdit.au3>
+#include <GuiRichEdit.au3>
 
 #include "..\Constants.au3"
 #include "..\Common.au3"
 #include "..\Logger.au3"
 #include "..\Config.au3"
 #include "..\Installer.au3"
+#include "..\Precheck.au3"
 
 Global $g_hGuiRun       = 0
 Global $g_idRunProgress = 0
 Global $g_idRunInfo     = 0
-Global $g_idRunLog      = 0
+Global $g_hRunLog       = 0         ; RichEdit 控件的**句柄**（不是 GUICtrl 的 ID）
 Global $g_idRunOpenLog  = 0
 Global $g_idRunClose    = 0
 
@@ -95,9 +100,13 @@ Func GuiInstall_Run($aSelected, $iCount)
     $g_idRunInfo = GUICtrlCreateLabel("准备中...", $UI_RUN_PAD, 96, $iWide, 20)
     GUICtrlSetColor($g_idRunInfo, $UI_COLOR_TEXT)
 
-    $g_idRunLog = GUICtrlCreateEdit("", $UI_RUN_PAD, $UI_RUN_LOG_Y, $iWide, $UI_RUN_LOG_H, _
+    ; 日志框用 RichEdit（而不是普通 Edit）—— 只有 RichEdit 能逐段设置文字颜色，
+    ; 从而让不同日志级别显示成不同颜色（颜色映射见 Logger_LevelColor()）。
+    ; $iExStyle 用默认值（WS_EX_CLIENTEDGE），保持和普通编辑框一样的外观。
+    $g_hRunLog = _GUICtrlRichEdit_Create($hGui, "", $UI_RUN_PAD, $UI_RUN_LOG_Y, $iWide, $UI_RUN_LOG_H, _
             BitOR($ES_MULTILINE, $ES_READONLY, $WS_VSCROLL, $ES_AUTOVSCROLL))
-    GUICtrlSetFont($g_idRunLog, $UI_FONT_SIZE, 400, 0, $UI_FONT_MONO)
+    _GUICtrlRichEdit_SetFont($g_hRunLog, $UI_FONT_SIZE, $UI_FONT_MONO)
+    _GUICtrlRichEdit_SetReadOnly($g_hRunLog, True)
 
     $g_idRunOpenLog = GUICtrlCreateButton("打开日志目录", $UI_RUN_PAD, $UI_RUN_BTN_Y, _
             $UI_RUN_BTN_W, $UI_RUN_BTN_H)
@@ -108,7 +117,7 @@ Func GuiInstall_Run($aSelected, $iCount)
     GUISetState(@SW_SHOW, $hGui)
 
     ; 绑定日志输出与回调
-    Logger_SetConsole($g_idRunLog)
+    Logger_SetConsole($g_hRunLog)
     Common_SetPump("GuiInstall_Pump")
     Installer_SetNotify("GuiInstall_OnProgress")
     Installer_SetWaitNotify("GuiInstall_OnWaitTick")
@@ -122,17 +131,32 @@ Func GuiInstall_Run($aSelected, $iCount)
     Logger_Info("待执行任务：" & $iCount & " 项")
     Logger_Write("")
 
+    ; ---- 前置检查（交互模式下发现问题会弹窗确认，选择「否」则中止）----
+    GUICtrlSetData($g_idRunInfo, "正在进行前置检查...")
+    Local $bGo = Precheck_RunAll(Not $g_bRunAutoClose)
+
     ; ---- 逐项执行 ----
-    Local $aStat = Installer_RunAll($aSelected, $iCount)
+    Local $aStat[3] = [0, 0, 0]
+    If $bGo Then $aStat = Installer_RunAll($aSelected, $iCount)
 
     Logger_Write("")
     Logger_Write("==================== 执行结束 ====================")
-    Logger_Write(StringFormat("成功 %d 项  |  跳过 %d 项  |  失败 %d 项", $aStat[0], $aStat[1], $aStat[2]))
 
-    GUICtrlSetData($g_idRunProgress, 100)
-    If $aStat[2] > 0 Then
+    If $bGo Then
+        Logger_Write(StringFormat("成功 %d 项  |  跳过 %d 项  |  失败 %d 项", $aStat[0], $aStat[1], $aStat[2]))
+    Else
+        Logger_Warn("前置检查未通过，安装已中止（未执行任何安装任务）。")
+        $aStat[2] = 1                   ; 中止也算失败，便于批处理按退出码判断
+    EndIf
+
+    If Not $bGo Then
+        GUICtrlSetData($g_idRunProgress, 0)
+        GUICtrlSetData($g_idRunInfo, "前置检查未通过，安装已中止")
+    ElseIf $aStat[2] > 0 Then
+        GUICtrlSetData($g_idRunProgress, 100)
         GUICtrlSetData($g_idRunInfo, "执行结束，存在失败项，请查看日志")
     Else
+        GUICtrlSetData($g_idRunProgress, 100)
         GUICtrlSetData($g_idRunInfo, "全部执行完毕")
     EndIf
 
@@ -159,8 +183,10 @@ Func GuiInstall_Run($aSelected, $iCount)
     EndIf
 
     Logger_SetConsole(0)
+    _GUICtrlRichEdit_Destroy($g_hRunLog)    ; 释放 RichEdit 的 OLE 回调，再销毁窗口
     GUIDelete($hGui)
     $g_hGuiRun = 0
+    $g_hRunLog = 0
 
     Return $aStat
 EndFunc

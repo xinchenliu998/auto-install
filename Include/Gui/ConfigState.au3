@@ -13,10 +13,13 @@
 
 #include-once
 
+#include <GUIConstantsEx.au3>
+
 #include "..\Constants.au3"
 #include "..\Common.au3"
 #include "..\Logger.au3"
 #include "..\Config.au3"
+#include "ConfigShared.au3"
 #include "PackageList.au3"
 
 ; ------------------------------------------------------------------------------
@@ -124,6 +127,8 @@ Func GuiConfigState_Apply()
     Config_SetPackagesDir($sPkgDir)
     Config_SetCopySource(GUICtrlRead($g_idCopySrc))
     Config_SetCopyDest(GUICtrlRead($g_idCopyDst))
+    Config_SetUserName(GUICtrlRead($g_idAcctUser))
+    Config_SetPassword(GUICtrlRead($g_idAcctPass))
 
     GuiPackageList_WriteToConfig()
 

@@ -19,6 +19,7 @@
 #include "..\Constants.au3"
 #include "..\Common.au3"
 #include "..\Config.au3"
+#include "ConfigShared.au3"
 
 ; 已选计数缓存。ListView 的勾选变化不便直接收消息（要处理 WM_NOTIFY），
 ; 因此改由空闲轮询驱动刷新，用缓存避免每次都写标签。

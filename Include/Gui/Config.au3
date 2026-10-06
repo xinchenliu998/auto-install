@@ -1,12 +1,12 @@
 ﻿; ==============================================================================
 ; Gui\Config.au3 —— 配置窗口（入口 + 消息循环）
 ; ------------------------------------------------------------------------------
-; 本文件是配置界面的「头」：
-;   · 声明窗口控件 ID 与状态变量（供同目录其他模块共用）；
+; 本文件是配置界面的「入口」：
 ;   · 提供入口 GuiConfig_Show()；
 ;   · 跑消息循环，把事件分派给界面构建 / 状态同步 / 列表控件三个子模块。
 ;
 ; 同目录下的子模块分工：
+;   Gui\ConfigShared.au3   控件 ID 与界面状态（**只声明变量**，其他文件各自 include）
 ;   Gui\ConfigLayout.au3   界面构建（把控件摆出来）
 ;   Gui\ConfigState.au3    状态同步与校验回写
 ;   Gui\PackageList.au3    软件列表控件（带复选框的 ListView）
@@ -25,35 +25,9 @@
 #include "..\Config.au3"
 
 ; ------------------------------------------------------------------------------
-; 控件 ID（由 Gui\ConfigLayout.au3 创建并赋值）
+; 子模块（共享声明与各子模块都自带 #include-once，顺序无关）
 ; ------------------------------------------------------------------------------
-Global $g_hGuiCfg = 0
-
-Global $g_idName, $g_idRoot, $g_idRootDefault, $g_idBrowse
-Global $g_idPkgDir, $g_idPkgBrowse, $g_idPkgReload
-Global $g_idCopySrc, $g_idCopySrcBrowse
-Global $g_idCopyDst, $g_idCopyDstBrowse
-
-Global $g_idRootHint, $g_idPkgHint, $g_idLogHint, $g_idConfigHint
-
-Global $g_idGrp2, $g_idPkgList
-Global $g_idSelectAll, $g_idSelectNone, $g_idSelectInvert, $g_idCount
-
-Global $g_idStatus, $g_idStart, $g_idSave, $g_idExit
-
-; ------------------------------------------------------------------------------
-; 界面状态
-; ------------------------------------------------------------------------------
-Global $g_bRootAuto     = True      ; 安装根目录是否跟随软件名称自动变化
-Global $g_sLastAutoRoot = ""
-Global $g_sHintRoot     = ""
-Global $g_sHintPkg      = ""
-Global $g_sHintLog      = ""
-Global $g_sStatusText   = ""
-
-; ------------------------------------------------------------------------------
-; 子模块（放在全局声明之后，它们会用到上面的控件 ID）
-; ------------------------------------------------------------------------------
+#include "ConfigShared.au3"
 #include "PackageList.au3"
 #include "ConfigLayout.au3"
 #include "ConfigState.au3"

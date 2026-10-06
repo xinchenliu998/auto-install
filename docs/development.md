@@ -12,10 +12,19 @@ auto-install.au3                     总入口：解析命令行 → 配置界�
         │
         ├── Include/Constants.au3    全局常量（唯一来源）
         ├── Include/Common.au3       通用工具：权限、路径、环境变量、外部命令
-        ├── Include/Logger.au3       日志（文件 + 界面）
+        ├── Include/Logger.au3       日志（文件 + 界面；界面按级别着色）
         ├── Include/Config.au3       配置读写 + 安装包目录扫描
         ├── Include/Installer.au3    安装调度 + 通用安装流程 + 安装辅助（含等待心跳）
+        ├── Include/Precheck.au3     前置检查入口：Precheck_RunAll()
+        ├── Include/Precheck/        前置检查各项（内部按检查项拆分）
+        │     ├── Base.au3           共享底座：状态 + 辅助（各子模块各自 include）
+        │     ├── System.au3         系统版本与内部版本号
+        │     ├── Network.au3        ping 与远程桌面
+        │     ├── Power.au3          电源（永不睡眠 / 永不休眠）
+        │     ├── Driver.au3         设备驱动异常
+        │     └── Account.au3        开机账户
         ├── Include/Gui/             界面层（内部按职责拆分）
+        │     ├── ConfigShared.au3   配置界面：控件 ID + 界面状态（共享声明）
         │     ├── Config.au3         配置界面：入口 + 消息循环
         │     ├── ConfigLayout.au3   配置界面：界面构建
         │     ├── ConfigState.au3    配置界面：状态同步 + 校验回写
@@ -29,17 +38,23 @@ auto-install.au3                     总入口：解析命令行 → 配置界�
 - `Constants.au3` 无依赖，是常量的唯一来源。
 - `Common.au3` / `Logger.au3` 是基础层，不依赖上层模块。
 - `Installer.au3` 是业务层，负责把「软件目录」映射到「安装函数」并调度。
+- `Precheck.au3` + `Include/Precheck/` 是业务层：安装前置检查。共享的状态与辅助在
+  `Precheck/Base.au3`，入口只做汇总，子模块一项检查一个文件；
+  复用 `Installer_RunWaitBeat()` 等辅助，不依赖界面层 ——
+  由界面层在安装前调用，靠返回值与日志汇报结果。
 - `Include/Install/*.au3` 是最外层的具体实现，只关心单个软件怎么装。
 - `Include/Gui/` 是界面层，只负责界面与交互，不写安装逻辑；
-  内部再按「入口 / 布局 / 状态 / 列表控件」拆开，避免单文件过长。
+  内部再按「共享声明 / 入口 / 布局 / 状态 / 列表控件」拆开，避免单文件过长。
 
 ### 运行流程
 
 1. `Main()` 解析命令行，`Config_Init()` 初始化配置对象。
 2. 配置界面模式：`Config_Load()` → `GuiConfig_Show()`；用户点「开始安装」时校验并 `Config_Save()`。
 3. `Main_Execute()` 取出勾选项 → 初始化日志 → 检查权限（必要时提权重启）。
-4. `GuiInstall_Run()` 调用 `Installer_RunAll()` 逐项执行，实时刷新进度、日志与等待心跳。
-5. 有失败项时以退出码 `1` 结束。
+4. `GuiInstall_Run()` 先调用 `Precheck_RunAll()` 做前置检查（交互模式下发现问题会弹窗确认，
+   选「否」则中止、不执行任何安装任务），再调用 `Installer_RunAll()` 逐项执行，
+   实时刷新进度、日志与等待心跳。
+5. 有失败项（含前置检查中止）时以退出码 `1` 结束。
 
 ---
 
@@ -53,8 +68,10 @@ auto-install/
 ├── auto-install.au3        # 总入口脚本
 ├── config.ini              # 运行配置（首次运行自动生成）
 ├── tools/                  # 辅助脚本
+│   ├── check_syntax.py     #   语法检查：调 AutoIt 官方 Au3Check.exe（见第七节）
 │   ├── check_au3.py        #   AutoIt 源码静态自检（见第七节）
-│   └── check_docs.py       #   文档与代码一致性检查（见第七节）
+│   ├── check_docs.py       #   文档与代码一致性检查（见第七节）
+│   └── precheck_smoke.au3  #   前置检查只读探针冒烟测试（见第七节）
 ├── docs/                   # 项目文档
 │   ├── usage.md            #   使用说明
 │   ├── development.md      #   开发规范（本文件）
@@ -72,10 +89,19 @@ auto-install/
 ├── Include/                # AutoIt 脚本：框架模块
 │   ├── Constants.au3       #   全局常量集中管理
 │   ├── Common.au3          #   通用工具：权限、路径、环境变量、外部命令执行
-│   ├── Logger.au3          #   日志（文件 + 界面）
+│   ├── Logger.au3          #   日志（文件 + 界面；界面按级别着色）
 │   ├── Config.au3          #   配置读写（config.ini）+ 安装包目录扫描
 │   ├── Installer.au3       #   安装调度 + 通用安装流程 + 安装辅助（含等待心跳）
+│   ├── Precheck.au3        #   前置检查入口：Precheck_RunAll()
+│   ├── Precheck/           #   前置检查各项，按检查项拆分
+│   │   ├── Base.au3        #     共享底座：状态 + 辅助（各子模块各自 include）
+│   │   ├── System.au3      #     1/5 系统版本与内部版本号
+│   │   ├── Network.au3     #     2/5 ping 与远程桌面
+│   │   ├── Power.au3       #     3/5 电源（永不睡眠 / 永不休眠）
+│   │   ├── Driver.au3      #     4/5 设备驱动异常
+│   │   └── Account.au3     #     5/5 开机账户
 │   ├── Gui/                #   界面层，按职责拆分（见下方说明）
+│   │   ├── ConfigShared.au3#     配置界面：控件 ID + 界面状态（共享声明）
 │   │   ├── Config.au3      #     配置界面：入口 + 消息循环
 │   │   ├── ConfigLayout.au3#     配置界面：界面构建
 │   │   ├── ConfigState.au3 #     配置界面：状态同步 + 校验回写
@@ -123,22 +149,38 @@ auto-install/
 | --- | --- | --- |
 | `Constants.au3` | 全局常量 | —（只声明常量） |
 | `Common.au3` | 无业务的基础工具 | `Common_RunWait()`、`Common_JoinPath()`、`Common_IsElevated()`、`Common_Which()`、`Common_Find7Zip()` |
-| `Logger.au3` | 日志双写（文件 + 界面） | `Logger_Init()`、`Logger_Info()`、`Logger_Warn()`、`Logger_Err()`、`Logger_Ok()`、`Logger_Step()` |
+| `Logger.au3` | 日志双写（文件 + 界面）；**界面按级别着色**（RichEdit） | `Logger_Init()`、`Logger_SetConsole()`、`Logger_Info()`、`Logger_Warn()`、`Logger_Err()`、`Logger_Ok()`、`Logger_Step()`、`Logger_LevelColor()` |
 | `Config.au3` | 配置对象与读写 | `Config_Load()`、`Config_Save()`、`Config_GetSelected()`、`Config_RescanPackages()`、`Config_InstallRootReal()`、`Config_PackagesDirReal()`、`Config_CopySourceReal()`、`Config_CopyDestReal()` |
 | `Installer.au3` | 注册表、调度、**通用安装流程**、安装辅助（解压 / 写 PATH / 等待心跳） | `Installer_Register()`、`Installer_RunAll()`、`Installer_InstallSilent()`、`Installer_InstallGreen()`、`Installer_RunWaitBeat()`、`Installer_SetWaitNotify()`、`Installer_FindInstalled()`、`Installer_ExtractZip()`、`Installer_AddToSystemPath()` |
-| `Gui/Config.au3` | 配置界面入口、消息循环；控件 ID 与状态在此声明 | `GuiConfig_Show()` |
+| `Precheck.au3` | 前置检查入口：结果汇总与「继续 / 中止」确认 | `Precheck_RunAll()` |
+| `Precheck/Base.au3` | 前置检查共享底座：状态（问题列表 / 设备列表 / 家庭版标记）与辅助函数 | `Precheck_AddIssue()`、`Precheck_Capture()`、`Precheck_RunCmd()`、`Precheck_LogBefore()` |
+| `Precheck/System.au3` 等 | 前置检查各项：系统版本、ping 与远程桌面、电源、驱动、开机账户 | `PrecheckSystem_Check()`、`PrecheckNetwork_Check()`、`PrecheckPower_Check()`、`PrecheckDriver_Check()`、`PrecheckAccount_Check()` |
+| `Gui/ConfigShared.au3` | 配置界面的共享声明：控件 ID 与界面状态（**只声明变量**） | —（无函数） |
+| `Gui/Config.au3` | 配置界面入口、消息循环 | `GuiConfig_Show()` |
 | `Gui/ConfigLayout.au3` | 配置界面构建（把控件摆出来） | `GuiConfigLayout_CreateHeader()`、`GuiConfigLayout_CreateBasicGroup()`、`GuiConfigLayout_CreatePackageGroup()`、`GuiConfigLayout_CreateBottomBar()` |
 | `Gui/ConfigState.au3` | 配置界面状态同步与校验回写 | `GuiConfigState_SyncHint()`、`GuiConfigState_ReloadPackages()`、`GuiConfigState_Apply()` |
 | `Gui/PackageList.au3` | 软件列表控件（带复选框的 ListView） | `GuiPackageList_Create()`、`GuiPackageList_Fill()`、`GuiPackageList_WriteToConfig()` |
-| `Gui/Install.au3` | 执行界面 | `GuiInstall_Run()` |
+| `Gui/Install.au3` | 执行界面（日志框为 RichEdit，按级别着色） | `GuiInstall_Run()` |
 
-> **`Include/Gui/` 为什么拆成 5 个文件**：一个配置窗口同时要管界面构建、交互、状态同步、
+> **`Include/Gui/` 为什么拆成 6 个文件**：一个配置窗口同时要管界面构建、交互、状态同步、
 > 配置读写、列表控件，全塞一个文件会到 480 行以上。按职责拆开后每个文件 100~200 行：
-> 入口只跑消息循环，布局只管摆控件，状态只管界面与配置对象的搬运，
+> 共享声明只放变量，入口只跑消息循环，布局只管摆控件，状态只管界面与配置对象的搬运，
 > 列表控件把 ListView 的细节封起来。
 >
-> 约定：**控件 ID 与界面状态变量统一在 `Gui/Config.au3` 里声明**，同目录其他文件直接使用；
-> 子模块通过 `#include` 挂在 `Gui/Config.au3` 里（放在全局声明之后）。
+> 约定：**控件 ID 与界面状态变量统一在 `Gui/ConfigShared.au3` 里声明**，
+> 同目录其他文件各自 `#include "ConfigShared.au3"` 引入，不要各自再声明一份。
+
+> **`Include/Precheck/` 为什么拆开**：5 项检查彼此独立，各自还带一批命令封装与输出解析，
+> 全放一个文件会到 550 行以上。拆法同 `Gui/`：共享的状态与辅助抽到 `Precheck/Base.au3`，
+> `Precheck.au3` 只做入口（`#include` 各子模块 + `Precheck_RunAll()`）；
+> 各子模块用各自的前缀（`PrecheckSystem_` / `PrecheckNetwork_` / `PrecheckPower_` /
+> `PrecheckDriver_` / `PrecheckAccount_`），并**各自 `#include "Base.au3"`**。
+
+> **共享声明为什么要单独成文件**：放在「父文件」里整体编译是能过的（编译时父文件先声明了），
+> 但在 SciTE 里逐个浏览子模块就是一片红字 ——
+> `Foo_Bar(): undefined function` / `$g_x: undeclared global variable`。
+> 抽成独立文件、由需要它的每个文件自己 `#include`，两个问题一起解决。
+> `python tools/check_syntax.py` 的第 3 项会逐个文件跑 Au3Check 核对这一点。
 
 ---
 
@@ -242,6 +284,16 @@ EndFunc
 在 `docs/packages/` 下新增一份 `<软件名>.md`，按该目录下 `README.md` 的模板填写，
 并在 `docs/packages/README.md` 的索引表里登记一行。
 
+### 5. 跑自检
+
+```bash
+python tools/check_syntax.py   # 语法（含单文件检查）
+python tools/check_au3.py      # 源码（含注册目录名与 packages/ 的一致性核对）
+python tools/check_docs.py     # 文档（含 docs/packages/ 索引完整性）
+```
+
+三者都通过才算完成。详见第七节。
+
 ### 关键约定
 
 | 项 | 约定 |
@@ -268,6 +320,12 @@ EndFunc
 1. 在 `Include/` 下封装为独立函数，命名以 `Action_` 开头（如 `Action_CleanTemp()`）；
 2. 若会被多个软件复用，放进 `Installer.au3` 或新建独立模块；
 3. 在 `docs/` 中记录其用途、执行时机与前置条件。
+
+**整批执行的操作**（在装任何软件之前 / 之后统一做一遍）适合单独建一个模块，
+参考 [`Precheck.au3`](../Include/Precheck.au3) 与 `Include/Precheck/`：头文件放入口、共享状态与
+辅助函数，子模块一项操作一个文件；对外只暴露 `Precheck_RunAll()`，由界面层在执行安装前调用，
+结果写日志、必要时弹窗确认。需要「整批前置 / 后置操作」时按同样的方式新增模块，
+不要在 `Installer_RunAll()` 里堆代码。
 
 ---
 
@@ -330,8 +388,10 @@ EndFunc
 | `$ENV_` / `$DIR_` / `$FILE_` | 环境变量、目录名、文件名 | `$ENV_INSTALL_BASE`、`$DIR_LOGS`、`$FILE_CONFIG` |
 | `$INI_` | 配置文件段名与键名 | `$INI_SEC_GENERAL`、`$INI_KEY_ROOT` |
 | `$PKG_` / `$REG_` | 数组列索引 | `$PKG_COL_ENABLED`、`$REG_COL_FUNC` |
-| `$LOG_` | 日志级别与格式 | `$LOG_LEVEL_WARN`、`$LOG_LEVEL_WIDTH` |
+| `$LOG_` | 日志级别、格式与界面颜色 | `$LOG_LEVEL_WARN`、`$LOG_LEVEL_WIDTH`、`$LOG_COLOR_ERROR` |
 | `$RUN_` | 外部命令返回码、超时与等待心跳 | `$RUN_ERR_TIMEOUT`、`$TIMEOUT_INSTALL`、`$RUN_HEARTBEAT_LOG_SEC` |
+| `$PRECHK_` | 前置检查（注册表键、防火墙规则名、内置组名等） | `$PRECHK_RDP_KEY`、`$PRECHK_FW_ICMP`、`$PRECHK_ADMIN_GROUP` |
+| `$ACCT_` | 开机账户默认值 | `$ACCT_DEF_USER`、`$ACCT_DEF_PASS` |
 | `$SILENT_` | 安装器静默参数 | `$SILENT_NSIS`、`$SILENT_INNO` |
 | `$MB_` / `$EXIT_` / `$CLI_` / `$MUTEX_` | 消息框、退出码、命令行开关、互斥体 | `$MB_YESNO_WARN`、`$CLI_RUN` |
 | `$UI_` | 界面布局、字体、颜色 | `$UI_CFG_W`、`$UI_COLOR_HINT` |
@@ -344,12 +404,38 @@ EndFunc
 
 ## 七、提交前自检
 
-本机通常没有 AutoIt 环境，无法编译验证，因此项目提供了两个静态自检脚本：
+项目提供三个自检脚本，**改完代码或文档都要跑**：
 
 ```bash
+python tools/check_syntax.py  # 语法（调 AutoIt 官方 Au3Check.exe）
 python tools/check_au3.py     # 源码
 python tools/check_docs.py    # 文档
 ```
+
+### check_syntax.py —— 语法检查（调官方 Au3Check.exe）
+
+**这是唯一能查出语法错误的检查，不能省。** 本机 AutoIt 装在 `D:\Program Files (x86)\AutoIt3`，
+`Au3Check.exe` 就在那里；脚本会自动在 PATH 与各盘 `Program Files*` 下找它。
+
+| # | 检查项 | 说明 |
+| --- | --- | --- |
+| 1 | 检查覆盖范围 | 从总入口出发递归解析 `#include`，找出没被任何 `#include` 引用、因而不会被检查到的 `.au3` |
+| 2 | 整体语法检查 | 对总入口跑 Au3Check，它会自行跟进整条 `#include` 链（等于查了全部源码） |
+| 3 | 单文件语法检查 | 对每个 `.au3` 单独跑一次 Au3Check，模拟「在 SciTE 里直接打开这个文件」 |
+
+第 3 项专门防一类退化：**共享声明（常量 / 变量 / 函数）留在「父文件」里**时，
+整体编译不报错（编译时父文件先声明了），但单独打开子模块就会报
+`Foo_Bar(): undefined function` / `$g_x: undeclared global variable`。
+本项目的做法是把共享声明抽成独立文件（`Include/Precheck/Base.au3`、
+`Include/Gui/ConfigShared.au3`），由需要它的每个文件自己 `#include`。
+
+- 用的警告档位是 `-w 3 -w 4 -w 5 -w 6`（重复声明变量 / 全局作用域用局部变量 /
+  声明未使用的局部变量 / 使用 `Dim`），这几项 Au3Check 默认是关的，当前项目能做到 0 warning。
+- 退出码：`0` 通过；`1` 有语法错误或有漏检文件；`2` **没找到 `Au3Check.exe`（不算通过）**。
+
+> 为什么必须单独有这一步：`check_au3.py` / `check_docs.py` 都是**文本级**检查。
+> 例如 `@PID`（AutoIt 里没有这个宏，应为 `@AutoItPID`）两个脚本都会放行，
+> 只有 Au3Check 会报 `error: undefined macro`。
 
 ### check_au3.py —— 源码检查（6 项）
 
@@ -372,10 +458,35 @@ python tools/check_docs.py    # 文档
 | 3 | 文件路径 | 反引号引用的仓库内路径不存在 |
 | 4 | `docs/packages` 索引 | 新增了软件文档却忘了在索引表登记 |
 
-> 两个脚本都会跳过模板占位符（`$XXX_*`、`<软件名>`）与外部程序名（`7z.exe`），不会误报。
+> 后两个脚本都会跳过模板占位符（`$XXX_*`、`<软件名>`）与外部程序名（`7z.exe`），不会误报。
 
-> **注意**：这只是静态检查。语法错误、AutoIt API 用法、界面布局仍需在装有 AutoIt 的机器上
-> 编译并实测，两者不能互相替代。
+### precheck_smoke.au3 —— 前置检查只读冒烟测试
+
+`check_syntax.py` / `check_au3.py` / `check_docs.py` 都只能证明「语法对、名字对」，
+**证明不了「能读到值」**。前置检查里大量依赖解析外部命令的输出
+（`powercfg /query`、`netsh ... show rule`、WMI 查询），这类逻辑必须真跑一遍：
+
+```bash
+AutoIt3_x64.exe tools\precheck_smoke.au3
+```
+
+它**只调用不改系统的探针函数**（不开启远程桌面、不改防火墙、不改电源计划、不创建账户），
+把各探针在这台机器上读到的真实值写进 `%TEMP%\precheck-smoke.txt`：
+
+```
+系统版本　：Windows 11（WIN_11）        内部版本号：26300.9457
+ping 规则：已存在      RDP 规则：不存在      远程桌面：已开启
+睡眠：交流 从不 / 电池 从不
+不存在的账户：账户不存在
+当前用户 xxx：账户存在（已启用，在 Administrators 组（系统管理员），密码永不过期）
+```
+
+> 这不是可选项：曾经因为把 `StringRegExp(..., 3)` 的返回值理解错，
+> 电源状态在真机上一直显示「无法读取」，而三项静态检查全部通过。
+> **新增或改动任何探针函数后，都要跑一次确认能读到值。**
+
+> **注意**：语法检查通过 ≠ 行为正确。AutoIt API 用法、界面布局、外部命令参数，
+> 以及文档里描述性内容是否过时，仍需人工判断或在目标机上实测。
 
 ---
 
@@ -388,4 +499,8 @@ python tools/check_docs.py    # 文档
 | **数组长度为 0** | `Local $a[0]` / `ReDim $a[0]` 会报错。返回数组的函数统一保证至少 1 行，实际条数用返回值单独传（见 `Config_GetSelected()`）。 |
 | **界面不假死 / 长任务可见** | 等待外部命令统一走 `Installer_RunWaitBeat()` —— 内部 `Common_RunWait()` 用 Adlib 消息泵维持响应，并持续输出等待心跳。AutoIt 的 `Sleep` 期间消息队列仍会被处理、Adlib 照常触发，但 `MsgBox` / `WinWait` 等阻塞函数会暂停 Adlib，不要在等待期间弹窗。 |
 | **编译目标** | 编译为 **x64**，否则 `@ProgramFilesDir` 指向 `Program Files (x86)`。 |
+| **`StringRegExp` 的 flag 3** | 返回**纯匹配数组（0 基，没有计数元素）**：`$a[0]` 是第一个匹配值，匹配个数要用 `UBound()` 取。别当成「带计数的数组」。 |
+| **顶层代码用 `Global`** | 函数之外（脚本顶层）声明变量要用 `Global`；写 `Local` 会报 `'Local' specifier in global scope`。 |
+| **解析外部命令输出** | `powercfg` / `netsh` / `wmic` 的输出格式（含本地化文字）只有真跑才知道。改动后跑 `tools\precheck_smoke.au3` 验证。 |
+| **RichEdit 着色** | 执行界面的日志框是 RichEdit，用于按级别着色。三个坑：① 颜色是 **COLORREF(BGR)**，GUI 函数用的才是 RGB（`Logger_RgbToColorRef()` 负责转换）；② `_GUICtrlRichEdit_GetTextLength()` 默认返回**字节数**，要字符数得传 `$bChars = True`（`SetSel` 用字符位置）；③ 设色必须**先追加 → 选中新追加的范围 → 再上色**，反过来会整体错位一行；`_GUICtrlRichEdit_GetFirstCharPosOnLine()` 的行号是 **1 基**。 |
 | **静默参数实测** | 不同渠道 / 版本的安装包静默参数可能不同，批量使用前必须在目标系统实测。 |

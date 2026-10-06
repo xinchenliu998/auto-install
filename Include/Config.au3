@@ -14,6 +14,10 @@
 ;   7zip=1
 ;   SQLite3=0
 ;
+;   [Account]
+;   UserName=admin
+;   Password=BJ88888888
+;
 ; 说明：
 ;   * InstallRoot 保存的是「可含环境变量的模板」，便于换机器 / 换账户后仍可用；
 ;     实际使用时通过 Config_InstallRootReal() 展开成真实路径。
@@ -21,6 +25,10 @@
 ;     填相对路径时相对本程序解析，填绝对路径则原样使用 —— 这样可以和项目解耦。
 ;   * CopySourceDir / CopyDestDir 是资源拷贝（文档、驱动等）的源与目标目录。
 ;     目标留空时默认用安装根目录。
+;   * [Account] 是前置检查用的开机账户：确保该本地账户存在（不存在则创建）、
+;     属 Administrators 组（系统管理员）、密码可用且永不过期。
+;     默认值 $ACCT_DEF_USER / $ACCT_DEF_PASS（见 Constants.au3），改配置即可覆盖。
+;     密码以**明文**保存，config.ini 本身不入库。
 ;   * 软件列表由 PackagesDir 下的子目录自动扫描得出，勾选状态记录在 [Packages]。
 ;
 ; 段名 / 键名 / 目录名 / 数组列索引等一律取自 Constants.au3。
@@ -44,6 +52,8 @@ Global $g_sLogFileName  = ""
 Global $g_sPackagesDir  = ""
 Global $g_sCopySource   = ""
 Global $g_sCopyDest     = ""
+Global $g_sUserName     = ""        ; 开机账户（前置检查用，见 Precheck\Account.au3）
+Global $g_sPassword     = ""
 
 ; 软件列表：[i][$PKG_COL_*]
 Global $g_aPackages[1][$PKG_COL_COUNT]
@@ -58,6 +68,8 @@ Func Config_Init()
     $g_sLogFileName = $FILE_LOG_PREFIX & Common_TimeStamp() & $FILE_LOG_EXT
     $g_sInstallRoot = Config_DefaultRoot($g_sSoftwareName)
     $g_sPackagesDir = $DIR_PACKAGES_DEF
+    $g_sUserName    = $ACCT_DEF_USER        ; 开机账户默认值，见 Constants.au3
+    $g_sPassword    = $ACCT_DEF_PASS
 EndFunc
 
 Func Config_File()
@@ -155,6 +167,32 @@ EndFunc
 ; 是否启用了资源拷贝
 Func Config_CopyEnabled()
     Return (Config_CopySourceReal() <> "")
+EndFunc
+
+; ------------------------------------------------------------------------------
+; 开机账户（前置检查：确保存在一个确定的本地账户）
+; ------------------------------------------------------------------------------
+
+Func Config_UserName()
+    Return $g_sUserName
+EndFunc
+
+Func Config_SetUserName($sName)
+    $g_sUserName = StringStripWS($sName, 3)
+EndFunc
+
+; 开机账户密码。以明文保存在 config.ini（该文件不入库）。
+Func Config_Password()
+    Return $g_sPassword
+EndFunc
+
+Func Config_SetPassword($sPass)
+    $g_sPassword = $sPass
+EndFunc
+
+; 是否配置了开机账户
+Func Config_AccountEnabled()
+    Return ($g_sUserName <> "")
 EndFunc
 
 ; ==============================================================================
@@ -302,6 +340,9 @@ Func Config_Load()
     Config_SetCopySource(IniRead($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_COPYSRC, ""))
     Config_SetCopyDest(IniRead($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_COPYDST, ""))
 
+    Config_SetUserName(IniRead($g_sConfigFile, $INI_SEC_ACCOUNT, $INI_KEY_USER, $ACCT_DEF_USER))
+    Config_SetPassword(IniRead($g_sConfigFile, $INI_SEC_ACCOUNT, $INI_KEY_PASS, $ACCT_DEF_PASS))
+
     Config_ScanPackages()
     Return True
 EndFunc
@@ -315,6 +356,9 @@ Func Config_Save()
     IniWrite($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_PKGDIR, $g_sPackagesDir)
     IniWrite($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_COPYSRC, $g_sCopySource)
     IniWrite($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_COPYDST, $g_sCopyDest)
+
+    IniWrite($g_sConfigFile, $INI_SEC_ACCOUNT, $INI_KEY_USER, $g_sUserName)
+    IniWrite($g_sConfigFile, $INI_SEC_ACCOUNT, $INI_KEY_PASS, $g_sPassword)
 
     For $i = 0 To $g_iPackageCount - 1
         IniWrite($g_sConfigFile, $INI_SEC_PACKAGES, _
