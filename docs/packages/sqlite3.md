@@ -30,8 +30,8 @@
 | 结果校验 | 检查 `sqlite3.exe` 是否存在 |
 | PATH 写入 | `$SQLITE_ADD_PATH = True` 时调用 `Installer_AddToSystemPath()`；**只有本次真的解压到该目录才会写**，若已从 `PATH` 找到现成的 sqlite3 则跳过 |
 
-> 这是项目里**唯一会用到「安装根目录」**的软件（绿色解压类）。其余软件都装到各自的
-> 官方默认路径（Program Files 等）。
+> 绿色解压类软件（SQLite3、HslCommunicationDemo）会解压到**安装根目录**下；
+> 安装包类软件则装到各自的官方默认路径。
 
 ## 注意事项
 

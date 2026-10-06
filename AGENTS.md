@@ -78,12 +78,13 @@ Include/
   Common.au3                  基础工具：权限、路径、环境变量、外部命令
   Logger.au3                  日志（文件 + 界面双写）
   Config.au3                  配置读写 + 安装包目录扫描
-  Installer.au3               安装调度 + 通用安装流程 + 安装辅助（解压、写 PATH）
+  Installer.au3               安装调度 + 通用安装流程 + 安装辅助（解压、写 PATH、等待心跳）
   Gui/Config.au3              配置界面：入口 + 消息循环（控件 ID 与状态在此声明）
   Gui/ConfigLayout.au3        配置界面：界面构建
   Gui/ConfigState.au3         配置界面：状态同步 + 校验回写
   Gui/PackageList.au3         配置界面：软件列表控件（带复选框的 ListView）
   Gui/Install.au3             执行界面
+  Install/All.au3             安装模块汇总：集中 include 各软件安装脚本（新增软件登记在此）
   Install/<软件>.au3          各软件的具体安装脚本（自注册）
 packages/<软件>/              安装包（默认位置，可在配置界面改；整个目录不入库）
 docs/                         文档（细节都在这里）
@@ -113,7 +114,8 @@ tools/check_docs.py           文档一致性检查
   （可在界面改、可指向仓库之外），不要自己拼 `@ScriptDir\packages`。
 - **每个 `.au3`** 顶部写 `#include-once`，并显式 `#include` 自己用到的模块（含 `Constants.au3`）。
 - **错误处理与日志**：所有脚本要有日志输出，用 `Logger_Info()` / `Logger_Warn()` / `Logger_Err()`。
-- **执行外部命令**统一用 `Common_RunWait()`，等待期间界面不会假死。
+- **执行外部命令**统一用 `Installer_RunWaitBeat()`（内部走 `Common_RunWait()`），
+  等待期间界面不会假死，并会输出「等待心跳」避免长任务被误认为卡死。
 - **不要弹窗**：自动化流程中避免 `MsgBox` 打断（配置界面交互除外）。
 
 ---
@@ -175,17 +177,18 @@ tools/check_docs.py           文档一致性检查
    - 实现 `Func Install_XXX($sInstallRoot)`，成功返回 `True`，失败返回 `False`；
    - **禁止在安装脚本里重复实现**「已安装检测 / 执行 / 超时 / 结果校验 / 日志」——
      静默安装用 `Installer_InstallSilent()`，绿色解压用 `Installer_InstallGreen()`；
-   - 需要多候选安装路径时（如 WPS），把候选数组作为 `$vExpected` 传进去即可；
+   - 需要多候选安装路径时（如 WPS、DBX），把候选数组作为 `$vExpected` 传进去即可；
    - 通用流程内部已经做到：幂等（已装则跳过）、退出码 + 主程序存在性双重校验、
      **检测范围覆盖预期路径与整个系统 PATH**。装好一个模块通常 40 行以内。
 
-3. `auto-install.au3` 的「各软件的安装模块」区域追加一行 `#include`。
+3. 在 `Include/Install/All.au3` 的「安装模块列表」追加一行 `#include "<软件名>.au3"`。
+   总入口 `auto-install.au3` 只 `#include` 这个汇总文件，**无需改动**。
 
 4. `docs/packages/<软件名>.md` 按模板补文档，并在 `docs/packages/README.md` 索引表登记一行。
 
 5. 跑 `python tools/check_au3.py`。
 
-**安装位置约定**：第三方安装包装到各自官方默认路径（Program Files 等）；
+**安装位置约定**：安装包类软件装到各自的官方默认路径（多数在 Program Files，也有落在用户目录的，如 DBX）；
 只有**绿色软件**才解压到 `$sInstallRoot`（即 `%LOCALAPPDATA%\BJ\<软件名>`）。
 安装根目录在 `%LOCALAPPDATA%` 下（Local，不随域账户漫游），适合放绿色工具与运行产物；
 但仍是用户目录，**不适合安装需要写系统目录的常规软件**——那些走 Program Files。
@@ -201,7 +204,8 @@ tools/check_docs.py           文档一致性检查
 | 生成 `.au3` 后忘了补 BOM | 写完立刻检查前 3 字节 |
 | 注册目录名与安装包目录下的实际目录大小写/拼写不一致 | 跑自检脚本第 6 项，它会核对（按默认 `packages/`） |
 | `ReDim $a[0]` 报错 | 保证至少 1 行，条数用返回值传 |
-| 界面在安装时假死 | 用 `Common_RunWait()`；它内部靠 Adlib 消息泵维持响应 |
+| 界面在安装时假死 | 用 `Installer_RunWaitBeat()`；内部靠 Adlib 消息泵维持响应 |
+| 长时间安装「看起来像卡死」 | 等待统一走 `Installer_RunWaitBeat()`，它会持续输出等待心跳（界面计时 + 定期日志） |
 | 在等待期间弹 `MsgBox` | 会暂停 Adlib 导致界面卡死，改记日志 |
 | 写回系统 PATH 破坏了 `%SystemRoot%` 简写 | 见 `Installer_AddToSystemPath()` 的注释；不能接受就把调用方开关改 `False` |
 | 只判断固定安装路径就认定「未安装」 | 用 `Installer_FindInstalled()`，它会连带查整个系统 PATH |

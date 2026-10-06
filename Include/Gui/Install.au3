@@ -58,6 +58,16 @@ Func GuiInstall_OnProgress($iIndex, $iTotal, $sName)
     GuiInstall_Pump()
 EndFunc
 
+; ------------------------------------------------------------------------------
+; 等待心跳回调：由 Installer_WaitTick() 每秒调用一次
+; 把「已等待 X 分 Y 秒」实时显示在信息标签上，让用户直观看到程序仍在工作。
+; ------------------------------------------------------------------------------
+Func GuiInstall_OnWaitTick($sLabel, $iSec)
+    If $g_hGuiRun = 0 Then Return
+
+    GUICtrlSetData($g_idRunInfo, $sLabel & "，已等待 " & Common_FormatDuration($iSec) & " ...")
+EndFunc
+
 Func GuiInstall_OpenLogDir()
     ShellExecute(Common_JoinPath(Config_InstallRootReal(), $DIR_LOGS))
 EndFunc
@@ -101,6 +111,7 @@ Func GuiInstall_Run($aSelected, $iCount)
     Logger_SetConsole($g_idRunLog)
     Common_SetPump("GuiInstall_Pump")
     Installer_SetNotify("GuiInstall_OnProgress")
+    Installer_SetWaitNotify("GuiInstall_OnWaitTick")
 
     Logger_Write("==================== 开始执行 ====================")
     Logger_Info("软件名称：" & Config_SoftwareName())
@@ -127,6 +138,7 @@ Func GuiInstall_Run($aSelected, $iCount)
 
     Common_SetPump("")
     Installer_SetNotify("")
+    Installer_SetWaitNotify("")
 
     GUICtrlSetState($g_idRunClose, $GUI_ENABLE)
     GUICtrlSetState($g_idRunClose, $GUI_FOCUS)

@@ -35,7 +35,7 @@
 3. `%LOCALAPPDATA%\Kingsoft\WPS Office`
 4. `%APPDATA%\Kingsoft\WPS Office`
 
-> WPS 是唯一使用**候选路径数组**的软件 —— 因为它的安装位置不固定。
+> WPS 与 DBX 都使用**候选路径数组** —— 因为它们的安装位置不固定。
 > 通用流程 `Installer_InstallSilent()` 的 `$vExpected` 参数支持传数组，正是为这种情况准备的。
 
 ## 注意事项

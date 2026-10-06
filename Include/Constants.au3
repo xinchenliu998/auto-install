@@ -108,6 +108,11 @@ Global Const $RUN_EXITED_BEFORE  = 0xCCCCCCCC   ; ProcessWaitClose 对已退出�
 Global Const $RUN_POLL_MS        = 1000         ; 分片等待步长（毫秒）
 Global Const $RUN_PUMP_MS        = 100          ; Adlib 消息泵间隔（毫秒）
 
+; 等待心跳：安装 / 解压 / 拷贝可能持续很久，等待期间定期输出「仍在进行」，
+; 避免界面长时间没有新日志而被误认为卡死（实现见 Installer_WaitTick）。
+Global Const $RUN_HEARTBEAT_MS      = 1000      ; 界面「已等待」计时刷新间隔（毫秒）
+Global Const $RUN_HEARTBEAT_LOG_SEC = 10        ; 写一条心跳日志的间隔（秒）
+
 Global Const $TIMEOUT_INSTALL      = 600000     ; 单个软件安装超时（10 分钟）
 Global Const $TIMEOUT_INSTALL_LONG = 1800000    ; 大体积软件安装超时（30 分钟，如 WPS）
 Global Const $TIMEOUT_UNZIP        = 600000     ; 解压超时（10 分钟）

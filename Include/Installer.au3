@@ -3,15 +3,16 @@
 ; ------------------------------------------------------------------------------
 ; 职责：
 ;   1. 把「软件目录」映射到「安装函数」，并按顺序调度执行；
-;   2. 提供装机过程中反复用到的辅助操作：解压绿色包、写入系统 PATH。
+;   2. 提供装机过程中反复用到的辅助操作：解压绿色包、写入系统 PATH、等待心跳。
 ;
 ; 【如何接入一个新软件】
 ;   1. 在 Include\Install\ 下新建 <软件名>.au3；
 ;   2. 文件顶部 #include 本模块，并调用 Installer_Register("<packages 下的目录名>", "Install_XXX")；
 ;   3. 实现 Func Install_XXX($sInstallRoot)，成功返回 True，失败返回 False；
-;      · 执行外部命令请使用 Common_RunWait()，这样安装期间界面不会假死；
+;      · 执行外部命令请使用 Installer_RunWaitBeat()：安装期间界面不会假死，
+;        并持续输出等待心跳，长时间任务不会看起来像卡死；
 ;      · 过程信息用 Logger_Info / Logger_Warn / Logger_Err 输出，会自动落盘；
-;   4. 在 auto-install.au3 的「各软件的安装模块」区域追加 #include 该文件。
+;   4. 在 Include\Install\All.au3 的「安装模块列表」登记一行 #include 该文件。
 ;
 ; 参考实现见 Install\7zip.au3（静默安装）与 Install\sqlite3.au3（绿色解压）。
 ; ==============================================================================
@@ -63,6 +64,67 @@ EndFunc
 ; ==============================================================================
 ; 安装辅助操作
 ; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; 等待心跳
+; ------------------------------------------------------------------------------
+; 安装 / 解压 / 拷贝可能持续几分钟甚至半小时。这段时间界面虽然不假死（消息泵在跑），
+; 但日志里不会出现任何新内容，用户很容易以为程序卡住了。
+;
+; 做法：在执行外部命令的等待期间挂一个 Adlib 定时器（AutoIt 的 Sleep 期间 Adlib 照常触发，
+; 现有的超时强杀就是这么实现的）：
+;   · 每 $RUN_HEARTBEAT_MS 回调界面刷新「已等待 X 分 Y 秒」——最直观的「还在干活」信号；
+;   · 每 $RUN_HEARTBEAT_LOG_SEC 秒写一条日志，事后也能看出当时是「在跑」还是「真卡住」。
+;
+; 放在本模块而不是 Common.au3：心跳要写日志，而 Common.au3 是基础层，
+; 依赖 Logger 会形成循环 include（见 AGENTS.md 的踩坑记录）。
+; ------------------------------------------------------------------------------
+
+Global $g_sWaitLabel   = ""     ; 当前等待项的名称（空串 = 没有在等待）
+Global $g_hWaitStart   = 0      ; 本次等待的起始时刻
+Global $g_iWaitNextLog = 0      ; 下一条心跳日志的时间点（秒）
+Global $g_sWaitNotify  = ""     ; 界面回调（由 GUI 层通过 Installer_SetWaitNotify 注册）
+
+; 由 GUI 层注册，用于把「已等待」实时显示到界面上
+Func Installer_SetWaitNotify($sFunc)
+    $g_sWaitNotify = $sFunc
+EndFunc
+
+; 执行外部命令并等待，期间持续输出心跳。参数与 Common_RunWait() 完全一致。
+Func Installer_RunWaitBeat($sLabel, $sCmd, $sWorkDir = "", $iTimeoutMs = 0)
+    Installer_WaitBegin($sLabel)
+    Local $iRet = Common_RunWait($sCmd, $sWorkDir, $iTimeoutMs)
+    Installer_WaitEnd()
+    Return $iRet
+EndFunc
+
+Func Installer_WaitBegin($sLabel)
+    $g_sWaitLabel   = $sLabel
+    $g_hWaitStart   = TimerInit()
+    $g_iWaitNextLog = $RUN_HEARTBEAT_LOG_SEC
+    AdlibRegister("Installer_WaitTick", $RUN_HEARTBEAT_MS)
+EndFunc
+
+Func Installer_WaitEnd()
+    AdlibUnRegister("Installer_WaitTick")
+    $g_sWaitLabel = ""
+EndFunc
+
+; Adlib 回调：在 Common_RunWait() 的等待期间照常触发
+Func Installer_WaitTick()
+    If $g_sWaitLabel = "" Then Return
+
+    Local $iSec = Int(TimerDiff($g_hWaitStart) / 1000)
+
+    ; 界面实时计时 —— 「没卡死」最直观的信号
+    If $g_sWaitNotify <> "" Then Call($g_sWaitNotify, $g_sWaitLabel, $iSec)
+
+    ; 定期落一条日志，便于事后判断当时是否仍在工作
+    If $iSec >= $g_iWaitNextLog Then
+        Logger_Info($g_sWaitLabel & " 仍在进行，已等待 " & Common_FormatDuration($iSec))
+        $g_iWaitNextLog += $RUN_HEARTBEAT_LOG_SEC
+    EndIf
+EndFunc
 
 ; 拼出 <安装包目录>\<目录>\<文件> 的完整路径。
 ;
@@ -117,7 +179,8 @@ Func Installer_ExtractZip($sZip, $sDest)
     Local $s7z = Common_Find7Zip(Config_PackagesDirReal())
     If $s7z <> "" Then
         Logger_Info("使用 7-Zip 解压：" & $s7z)
-        Local $iRet = Common_RunWait('"' & $s7z & '" x "' & $sZip & '" -o"' & $sDest & '" -y', _
+        Local $iRet = Installer_RunWaitBeat("解压 " & Common_FileName($sZip), _
+                '"' & $s7z & '" x "' & $sZip & '" -o"' & $sDest & '" -y', _
                 @ScriptDir, $TIMEOUT_UNZIP)
         If $iRet = 0 Then Return True
 
@@ -131,7 +194,8 @@ Func Installer_ExtractZip($sZip, $sDest)
             '"Expand-Archive -LiteralPath ' & Common_PsQuote($sZip) & _
             " -DestinationPath " & Common_PsQuote($sDest) & ' -Force"'
 
-    Local $iRet2 = Common_RunWait($sCmd, @ScriptDir, $TIMEOUT_UNZIP)
+    Local $iRet2 = Installer_RunWaitBeat("解压 " & Common_FileName($sZip), _
+            $sCmd, @ScriptDir, $TIMEOUT_UNZIP)
     If $iRet2 = 0 Then Return True
 
     Logger_Err("PowerShell 解压失败（返回 " & $iRet2 & "）")
@@ -211,7 +275,8 @@ Func Installer_InstallSilent($sDisplay, $sSetup, $sArgs, $sExeName, _
 
     ; ---- 执行安装 ----
     Logger_Info($sDisplay & " 静默安装：" & $sSetup & " " & $sArgs)
-    Local $iRet = Common_RunWait('"' & $sSetup & '" ' & $sArgs, @ScriptDir, $iTimeoutMs)
+    Local $iRet = Installer_RunWaitBeat($sDisplay & " 安装", _
+            '"' & $sSetup & '" ' & $sArgs, @ScriptDir, $iTimeoutMs)
 
     If $iRet = $RUN_ERR_START Then
         Logger_Err($sDisplay & "：安装程序启动失败")
@@ -300,7 +365,7 @@ Func Installer_RunCopy()
     Local $sCmd = 'robocopy "' & $sSrc & '" "' & $sTarget & _
             '" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1'
 
-    Local $iRet = Common_RunWait($sCmd, @ScriptDir, $TIMEOUT_COPY)
+    Local $iRet = Installer_RunWaitBeat("拷贝 " & $sName, $sCmd, @ScriptDir, $TIMEOUT_COPY)
 
     If $iRet = $RUN_ERR_START Then
         Logger_Err("无法启动 robocopy")
@@ -355,8 +420,8 @@ Func Installer_RunAll($aSelected, $iCount)
 
         If $sFunc = "" Then
             Logger_Warn("跳过「" & $sDisplay & "」：尚未实现安装脚本")
-            $sHint = '请在 Include\ 下新增模块，并在其中调用 Installer_Register("' & _
-                    $sFolder & '", "Install_XXX")'
+            $sHint = '请在 Include\Install\ 下新增模块，在其中调用 Installer_Register("' & _
+                    $sFolder & '", "Install_XXX")，并在 All.au3 的模块列表中登记'
             Logger_Warn("        " & $sHint)
             $iSkip += 1
             ContinueLoop

@@ -39,6 +39,9 @@
 8. **`Include/Gui/` 的控件 ID 与界面状态变量统一在 `Gui/Config.au3` 声明**，
    同目录的 Layout / State / PackageList 子模块直接引用，不要各自再声明一份。
 
+9. **等待外部命令统一用 `Installer_RunWaitBeat()`**，不要直接调 `Common_RunWait()` ——
+   前者会持续输出「等待心跳」（界面计时 + 定期日志），避免长时间安装看起来像卡死。
+
 ---
 
 ## 改完必须跑

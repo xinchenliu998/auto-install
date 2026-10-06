@@ -30,12 +30,8 @@
 #include "Include\Gui\Install.au3"
 
 ; ---- 各软件的安装模块（Include\Install\ 下，模块内部自注册）----
-;      新增软件时在此追加一行 #include 即可，执行顺序由 config.ini 中的勾选顺序决定。
-#include "Include\Install\7zip.au3"
-#include "Include\Install\sqlite3.au3"
-#include "Include\Install\sublime-text.au3"
-#include "Include\Install\everything.au3"
-#include "Include\Install\wps.au3"
+;      新增软件时只需在 Include\Install\All.au3 里登记一行，本文件无需改动。
+#include "Include\Install\All.au3"
 
 ; ==============================================================================
 ;  入口

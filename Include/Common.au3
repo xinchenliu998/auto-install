@@ -185,6 +185,17 @@ Func Common_NowText()
     Return @YEAR & "-" & @MON & "-" & @MDAY & " " & @HOUR & ":" & @MIN & ":" & @SEC
 EndFunc
 
+; 把秒数格式化成易读的时长，如 95 -> "1 分 35 秒"（用于等待心跳等提示）
+Func Common_FormatDuration($iSeconds)
+    If $iSeconds < 0 Then $iSeconds = 0
+
+    Local $iMin = Int($iSeconds / 60)
+    Local $iSec = Mod($iSeconds, 60)
+
+    If $iMin = 0 Then Return $iSec & " 秒"
+    Return $iMin & " 分 " & $iSec & " 秒"
+EndFunc
+
 ; ==============================================================================
 ; 压缩包
 ; ==============================================================================

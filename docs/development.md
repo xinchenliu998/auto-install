@@ -14,14 +14,14 @@ auto-install.au3                     总入口：解析命令行 → 配置界�
         ├── Include/Common.au3       通用工具：权限、路径、环境变量、外部命令
         ├── Include/Logger.au3       日志（文件 + 界面）
         ├── Include/Config.au3       配置读写 + 安装包目录扫描
-        ├── Include/Installer.au3    安装调度 + 通用安装流程 + 安装辅助
+        ├── Include/Installer.au3    安装调度 + 通用安装流程 + 安装辅助（含等待心跳）
         ├── Include/Gui/             界面层（内部按职责拆分）
         │     ├── Config.au3         配置界面：入口 + 消息循环
         │     ├── ConfigLayout.au3   配置界面：界面构建
         │     ├── ConfigState.au3    配置界面：状态同步 + 校验回写
         │     ├── PackageList.au3    配置界面：软件列表控件
         │     └── Install.au3        执行界面
-        └── Include/Install/*.au3    各软件的具体安装脚本（自注册）
+        └── Include/Install/*.au3    各软件的具体安装脚本（自注册；All.au3 汇总入口）
 ```
 
 **分层原则**
@@ -38,7 +38,7 @@ auto-install.au3                     总入口：解析命令行 → 配置界�
 1. `Main()` 解析命令行，`Config_Init()` 初始化配置对象。
 2. 配置界面模式：`Config_Load()` → `GuiConfig_Show()`；用户点「开始安装」时校验并 `Config_Save()`。
 3. `Main_Execute()` 取出勾选项 → 初始化日志 → 检查权限（必要时提权重启）。
-4. `GuiInstall_Run()` 调用 `Installer_RunAll()` 逐项执行，实时刷新进度与日志。
+4. `GuiInstall_Run()` 调用 `Installer_RunAll()` 逐项执行，实时刷新进度、日志与等待心跳。
 5. 有失败项时以退出码 `1` 结束。
 
 ---
@@ -65,14 +65,16 @@ auto-install/
 │       ├── sqlite3.md
 │       ├── sublime-text.md
 │       ├── everything.md
-│       ├── halcon.md
-│       └── wps.md
+│       ├── wps.md
+│       ├── hsl-communication-demo.md
+│       ├── dbx.md
+│       └── halcon.md
 ├── Include/                # AutoIt 脚本：框架模块
 │   ├── Constants.au3       #   全局常量集中管理
 │   ├── Common.au3          #   通用工具：权限、路径、环境变量、外部命令执行
 │   ├── Logger.au3          #   日志（文件 + 界面）
 │   ├── Config.au3          #   配置读写（config.ini）+ 安装包目录扫描
-│   ├── Installer.au3       #   安装调度 + 通用安装流程 + 安装辅助
+│   ├── Installer.au3       #   安装调度 + 通用安装流程 + 安装辅助（含等待心跳）
 │   ├── Gui/                #   界面层，按职责拆分（见下方说明）
 │   │   ├── Config.au3      #     配置界面：入口 + 消息循环
 │   │   ├── ConfigLayout.au3#     配置界面：界面构建
@@ -80,18 +82,23 @@ auto-install/
 │   │   ├── PackageList.au3 #     配置界面：软件列表控件
 │   │   └── Install.au3     #     执行界面
 │   └── Install/            #   各软件的具体安装脚本，一个软件一个文件
+│       ├── All.au3         #     安装模块汇总：集中 include 下列脚本（新增软件登记在此）
 │       ├── 7zip.au3
 │       ├── sqlite3.au3
 │       ├── sublime-text.au3
 │       ├── everything.au3
-│       └── wps.au3
+│       ├── wps.au3
+│       ├── hsl-communication-demo.au3
+│       └── dbx.au3
 └── packages/               # 各软件的安装包 —— 整个目录不入库（见 .gitignore）
     ├── 7zip/               # 每个目录下：安装包 + package.ini（界面显示名）
     ├── SQLite3/            # 克隆仓库后需自行创建本目录，或在配置界面指向别处
     ├── Sublime Text/
     ├── everything/
-    ├── halcon/             # 安装包待放入，安装脚本待补
-    └── wps/
+    ├── wps/
+    ├── HslCommunicationDemo/
+    ├── DBX/
+    └── halcon/             # 安装包待放入，安装脚本待补
 ```
 
 > 根目录另有 `.gitignore`：安装包目录、`config.ini`、编译产物、日志、编辑器与系统垃圾文件均不入库。
@@ -107,7 +114,7 @@ auto-install/
 | `docs/packages/` | 软件安装说明 | 与安装包目录一一对应，每个软件一份，记录版本、安装包、静默参数、安装路径等 |
 | `Include/` | 框架脚本 | 可复用的 `.au3` 函数库，统一封装安装、解压、日志等通用逻辑 |
 | `Include/Gui/` | 界面层 | 配置界面与执行界面，按「入口 / 布局 / 状态 / 列表控件」拆成多个文件 |
-| `Include/Install/` | 各软件安装脚本 | 一个软件一个 `.au3`，通过 `Installer_Register()` 自注册 |
+| `Include/Install/` | 各软件安装脚本 | 一个软件一个 `.au3`，通过 `Installer_Register()` 自注册；`All.au3` 是集中 include 它们的汇总入口 |
 | `packages/` | 软件安装包（默认位置） | 按「软件名」建子目录。**目录可配置、可指向仓库之外，且整个目录不入库** |
 
 ### 框架模块职责
@@ -118,7 +125,7 @@ auto-install/
 | `Common.au3` | 无业务的基础工具 | `Common_RunWait()`、`Common_JoinPath()`、`Common_IsElevated()`、`Common_Which()`、`Common_Find7Zip()` |
 | `Logger.au3` | 日志双写（文件 + 界面） | `Logger_Init()`、`Logger_Info()`、`Logger_Warn()`、`Logger_Err()`、`Logger_Ok()`、`Logger_Step()` |
 | `Config.au3` | 配置对象与读写 | `Config_Load()`、`Config_Save()`、`Config_GetSelected()`、`Config_RescanPackages()`、`Config_InstallRootReal()`、`Config_PackagesDirReal()`、`Config_CopySourceReal()`、`Config_CopyDestReal()` |
-| `Installer.au3` | 注册表、调度、**通用安装流程**、安装辅助 | `Installer_Register()`、`Installer_RunAll()`、`Installer_InstallSilent()`、`Installer_InstallGreen()`、`Installer_FindInstalled()`、`Installer_ExtractZip()`、`Installer_AddToSystemPath()` |
+| `Installer.au3` | 注册表、调度、**通用安装流程**、安装辅助（解压 / 写 PATH / 等待心跳） | `Installer_Register()`、`Installer_RunAll()`、`Installer_InstallSilent()`、`Installer_InstallGreen()`、`Installer_RunWaitBeat()`、`Installer_SetWaitNotify()`、`Installer_FindInstalled()`、`Installer_ExtractZip()`、`Installer_AddToSystemPath()` |
 | `Gui/Config.au3` | 配置界面入口、消息循环；控件 ID 与状态在此声明 | `GuiConfig_Show()` |
 | `Gui/ConfigLayout.au3` | 配置界面构建（把控件摆出来） | `GuiConfigLayout_CreateHeader()`、`GuiConfigLayout_CreateBasicGroup()`、`GuiConfigLayout_CreatePackageGroup()`、`GuiConfigLayout_CreateBottomBar()` |
 | `Gui/ConfigState.au3` | 配置界面状态同步与校验回写 | `GuiConfigState_SyncHint()`、`GuiConfigState_ReloadPackages()`、`GuiConfigState_Apply()` |
@@ -216,13 +223,19 @@ EndFunc
 > 这些都统一在 `Installer_InstallSilent()` 与 `Installer_InstallGreen()` 内完成。
 > 安装脚本只负责声明常量和填参数，通常 40 行以内。
 
-### 3. 在总入口登记
+### 3. 登记到安装模块汇总
 
-在 `auto-install.au3` 的「各软件的安装模块」区域追加一行：
+在 `Include/Install/All.au3` 的「安装模块列表」追加一行：
 
 ```autoit
-#include "Include\Install\<软件名>.au3"
+#include "<软件名>.au3"
 ```
+
+总入口 `auto-install.au3` 只 `#include` 这个汇总文件，**不需要改动**。
+
+> AutoIt 的 `#include` 是**编译期**指令，不接受通配符或变量，做不到「把 `.au3` 放进目录就自动加载」，
+> 因此必须有这份显式清单。把它单独抽成 `All.au3`，是为了让总入口保持稳定 ——
+> 新增软件只改汇总文件一处。
 
 ### 4. 补充文档
 
@@ -237,7 +250,7 @@ EndFunc
 | 取安装包路径 | 一律用 `Installer_PackagePath()`，它走的是配置里的安装包目录，不要自己拼 `@ScriptDir\packages` |
 | 函数签名 | `Func Install_XXX($sInstallRoot)`，成功返回 `True`，失败返回 `False` |
 | **禁止重复实现流程** | 「已安装检测 / 执行 / 超时 / 结果校验 / 日志」一律走 `Installer_InstallSilent()` 或 `Installer_InstallGreen()`，安装脚本里只填参数 |
-| 安装根目录 | 第三方安装包装到官方默认路径（Program Files 等）；**绿色软件**才解压到 `$sInstallRoot` |
+| 安装根目录 | 安装包类软件装到各自的官方默认路径（多数在 Program Files，也有落在用户目录的，如 DBX）；**绿色软件**才解压到 `$sInstallRoot` |
 | 幂等性 | 通用流程已保证：已安装时直接返回 `True`，不会重复安装 |
 | 已安装检测 | 通用流程内部用 `Installer_FindInstalled()`：先查预期路径、**再查整个系统 PATH** —— 软件可能装在别的盘，或绿色版已经挂在 PATH 上 |
 | 结果校验 | 通用流程内部做：不只看退出码，还会再确认主程序能找到 |
@@ -282,16 +295,27 @@ EndFunc
 
 | 函数 | 用途 |
 | --- | --- |
-| `Common_RunWait($sCmd, $sWorkDir, $iTimeoutMs)` | 执行外部命令并等待，**等待期间界面不假死**；返回退出码，失败返回 `$RUN_ERR_START` / `$RUN_ERR_TIMEOUT` |
+| `Common_RunWait($sCmd, $sWorkDir, $iTimeoutMs)` | 执行外部命令并等待，**等待期间界面不假死**；返回退出码，失败返回 `$RUN_ERR_START` / `$RUN_ERR_TIMEOUT`。**通常不直接用，改用下面的 `Installer_RunWaitBeat()`** |
+| `Installer_RunWaitBeat($sLabel, $sCmd, $sWorkDir, $iTimeoutMs)` | 同 `Common_RunWait()`，额外**持续输出等待心跳**（界面每秒刷新「已等待 X 分 Y 秒」+ 定期写日志）。安装 / 解压 / 拷贝都走它，避免长时间无输出被误认为卡死 |
 | `Installer_ExtractZip($sZip, $sDest)` | 解压 zip，自动在 7-Zip 命令行与 PowerShell `Expand-Archive` 之间回退 |
 | `Installer_AddToSystemPath($sDir)` | 把目录写入系统 PATH（去重 + 广播 `WM_SETTINGCHANGE`） |
 | `Installer_FindInstalled($vExpected, $sExeName)` | 已安装检测：先查预期路径（字符串或候选数组），再查整个系统 PATH |
 | `Common_Find7Zip()` | 定位解压用的 7-Zip：常见安装位置 → 整个系统 PATH |
 | `Common_ResolvePath($sPath, $sBase)` | 解析路径：绝对路径（盘符 / UNC）原样返回，相对路径拼到 `$sBase` 下 |
 | `Common_FileName($sPath)` | 取路径的最后一段（文件名或文件夹名） |
+| `Common_FormatDuration($iSeconds)` | 把秒数格式化成易读时长，如 `95` → `1 分 35 秒`（等待心跳等提示用） |
 | `Installer_PackagePath($sSubDir, $sFile)` | 拼出 `<安装包目录>\<目录>\<文件>` 完整路径（走配置，不写死默认目录） |
 | `Installer_ProgramFilesPath($sSubDir, $sFile)` | 拼出 `Program Files\<目录>\<文件>` 完整路径 |
 | `Common_Which($sExeName)` | 在系统 PATH 中查找可执行文件（类似 `where`），返回完整路径或空串 |
+
+> **等待心跳**：安装 / 解压 / 拷贝执行外部命令时统一走 `Installer_RunWaitBeat()`，
+> 它在 `Common_RunWait()` 前后挂一个 Adlib 定时器（`Installer_WaitTick()`）：
+> 每 `$RUN_HEARTBEAT_MS` 回调界面刷新「已等待 X 分 Y 秒」，每 `$RUN_HEARTBEAT_LOG_SEC`
+> 秒写一条日志。界面回调由 `Installer_SetWaitNotify()` 注册（GUI 层实现为 `GuiInstall_OnWaitTick()`）。
+> 原理是 AutoIt 的 `Sleep` 期间 Adlib 照常触发 —— 现有的超时强杀也依赖这一点。
+>
+> 心跳逻辑放在 `Installer.au3` 而非 `Common.au3`：它要写日志，
+> 而 `Common.au3` 是基础层，依赖 `Logger.au3` 会形成循环 include（见第八节）。
 
 ---
 
@@ -307,7 +331,7 @@ EndFunc
 | `$INI_` | 配置文件段名与键名 | `$INI_SEC_GENERAL`、`$INI_KEY_ROOT` |
 | `$PKG_` / `$REG_` | 数组列索引 | `$PKG_COL_ENABLED`、`$REG_COL_FUNC` |
 | `$LOG_` | 日志级别与格式 | `$LOG_LEVEL_WARN`、`$LOG_LEVEL_WIDTH` |
-| `$RUN_` | 外部命令返回码与超时 | `$RUN_ERR_TIMEOUT`、`$TIMEOUT_INSTALL` |
+| `$RUN_` | 外部命令返回码、超时与等待心跳 | `$RUN_ERR_TIMEOUT`、`$TIMEOUT_INSTALL`、`$RUN_HEARTBEAT_LOG_SEC` |
 | `$SILENT_` | 安装器静默参数 | `$SILENT_NSIS`、`$SILENT_INNO` |
 | `$MB_` / `$EXIT_` / `$CLI_` / `$MUTEX_` | 消息框、退出码、命令行开关、互斥体 | `$MB_YESNO_WARN`、`$CLI_RUN` |
 | `$UI_` | 界面布局、字体、颜色 | `$UI_CFG_W`、`$UI_COLOR_HINT` |
@@ -362,6 +386,6 @@ python tools/check_docs.py    # 文档
 | **文件编码** | `.au3` 源码**必须带 UTF-8 BOM**。否则含中文的字符串字面量在编译后会乱码。 |
 | **反斜杠** | AutoIt 字符串里反斜杠**不是转义符**，只有双引号需要写成 `""`。但路径拼接仍统一用 `Common_JoinPath()`，取目录用 `Common_FileDir()`，避免歧义。 |
 | **数组长度为 0** | `Local $a[0]` / `ReDim $a[0]` 会报错。返回数组的函数统一保证至少 1 行，实际条数用返回值单独传（见 `Config_GetSelected()`）。 |
-| **界面不假死** | `Common_RunWait()` 内部用 Adlib 消息泵维持响应 —— AutoIt 的 `Sleep` 期间消息队列仍会被处理，但 `MsgBox` / `WinWait` 等阻塞函数会暂停 Adlib，不要在等待期间弹窗。 |
+| **界面不假死 / 长任务可见** | 等待外部命令统一走 `Installer_RunWaitBeat()` —— 内部 `Common_RunWait()` 用 Adlib 消息泵维持响应，并持续输出等待心跳。AutoIt 的 `Sleep` 期间消息队列仍会被处理、Adlib 照常触发，但 `MsgBox` / `WinWait` 等阻塞函数会暂停 Adlib，不要在等待期间弹窗。 |
 | **编译目标** | 编译为 **x64**，否则 `@ProgramFilesDir` 指向 `Program Files (x86)`。 |
 | **静默参数实测** | 不同渠道 / 版本的安装包静默参数可能不同，批量使用前必须在目标系统实测。 |
