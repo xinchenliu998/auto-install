@@ -61,6 +61,7 @@
 #include "..\Logger.au3"
 #include "..\Config.au3"
 #include "..\Installer.au3"
+#include "..\Wizard.au3"       ; 通用向导自动化助手（找控件 / Dump / 等页面变化）
 
 ; ------------------------------------------------------------------------------
 ; 本软件相关常量
@@ -109,7 +110,7 @@ Global Const $HALCON_ID_CANCEL     = "[ID:2]"
 Global Const $HALCON_ID_PAGETITLE  = "[ID:1037]"                ; 当前页标题（Welcome 页没有）
 Global Const $HALCON_ID_EULA_TEXT  = "[ID:1000]"                ; License 页的 RichEdit20A
 ; 【注意】License 页有 2 个 id=1034（窗口固定的 Static 标签 + 「I accept」复选框）——
-;   别用 [ID:1034] 定位复选框，点到的只会是 Static；要用 Halcon_FindCtrl() 按类名+文字取句柄。
+;   别用 [ID:1034] 定位复选框，点到的只会是 Static；要用 Wizard_FindCtrl() 按类名+文字取句柄。
 Global Const $HALCON_ID_MAINTCHK   = "[ID:1200]"                ; Update 页：联网检查维护版本
 Global Const $HALCON_ID_ARCH_X64   = "[ID:1201]"                ; Architecture 页：x64
 Global Const $HALCON_ID_COMBO      = "[ID:1017]"                ; Components 页：安装类型下拉框
@@ -380,7 +381,7 @@ Func Halcon_RunWizard()
             ; ---- 干跑：到这一页就收手，绝不装 ----
             If $g_bHalconWizDryRun Then
                 Logger_Warn("  干跑模式：已走到安装页，按开关要求取消，**未执行安装**")
-                Halcon_LogWizardControls($hWin)
+                Wizard_LogControls($hWin)
                 ControlClick($hWin, "", $HALCON_ID_CANCEL)
                 Sleep(1500)
                 Return False
@@ -399,7 +400,7 @@ Func Halcon_RunWizard()
         ; ---- 其它一律视为未识别页面：Dump 后失败退出，**绝不盲目点 Next** ----
         Else
             Logger_Err("遇到未识别的向导页面「" & $sPage & "」，已中止（不盲目点 Next）")
-            Halcon_LogWizardControls($hWin)
+            Wizard_LogControls($hWin)
             Halcon_AbortWizard($hWin)
             Return False
         EndIf
@@ -409,9 +410,9 @@ Func Halcon_RunWizard()
             Halcon_AbortWizard($hWin)
             Return False
         EndIf
-        If Not Halcon_WaitPageChange($hWin, $sPage, $HALCON_WIZ_STEP_MS) Then
+        If Not Wizard_WaitPageChange($hWin, $HALCON_ID_PAGETITLE, $sPage, $HALCON_WIZ_STEP_MS) Then
             Logger_Err("向导停在页面「" & $sPage & "」没有前进，已中止")
-            Halcon_LogWizardControls($hWin)
+            Wizard_LogControls($hWin)
             Halcon_AbortWizard($hWin)
             Return False
         EndIf
@@ -445,7 +446,7 @@ Func Halcon_AcceptLicense($hWin)
 
     Local $iTick = 0, $hAcc = 0
     While $iTick < 30000
-        $hAcc = Halcon_FindCtrl($hWin, "Button", "I accept", True)
+        $hAcc = Wizard_FindCtrl($hWin, "Button", "I accept", True)
         If $hAcc <> 0 Then ExitLoop
         Sleep(500)
         $iTick += 500
@@ -453,7 +454,7 @@ Func Halcon_AcceptLicense($hWin)
 
     If $hAcc = 0 Then
         Logger_Err("License 页：「I accept」复选框始终不可用，已中止")
-        Halcon_LogWizardControls($hWin)
+        Wizard_LogControls($hWin)
         Return False
     EndIf
 
@@ -463,42 +464,10 @@ Func Halcon_AcceptLicense($hWin)
     Return True
 EndFunc
 
-; ------------------------------------------------------------------------------
-; 按「类名 + 文字子串（+ 可选：必须处于可用状态）」在窗口里找**控件句柄**。
-;
-; 存在的意义就是上面那个 ID 撞车问题：NSIS InstallOptions 分配出来的页面控件 ID
-; 会与窗口固定控件（标题、页脚、按钮）重号，`[ID:n]` 可能命中错的那个。
-; 找不到返回 0。
-; ------------------------------------------------------------------------------
-Global $g_hHcFind      = 0
-Global $g_sHcFindCls   = ""
-Global $g_sHcFindText  = ""
-Global $g_bHcFindEna   = False
-
-Func Halcon_FindProc($h, $l)
-    #forceref $l
-    If $g_hHcFind <> 0 Then Return 0                       ; 已找到，停止枚举
-    If Halcon_CtrlInfo($h, "class") <> $g_sHcFindCls Then Return 1
-    If Halcon_CtrlInfo($h, "vis") <> 1 Then Return 1
-    If $g_bHcFindEna And Halcon_CtrlInfo($h, "ena") <> 1 Then Return 1
-    If StringInStr(Halcon_CtrlInfo($h, "text"), $g_sHcFindText) = 0 Then Return 1
-    $g_hHcFind = $h
-    Return 0
-EndFunc
-
-Func Halcon_FindCtrl($hWin, $sClass, $sTextPart, $bNeedEnabled = False)
-    $g_hHcFind    = 0
-    $g_sHcFindCls = $sClass
-    $g_sHcFindText = $sTextPart
-    $g_bHcFindEna = $bNeedEnabled
-
-    Local $hProc = DllCallbackRegister("Halcon_FindProc", "int", "hwnd;lparam")
-    DllCall("user32.dll", "bool", "EnumChildWindows", "hwnd", $hWin, _
-            "ptr", DllCallbackGetPtr($hProc), "lparam", 0)
-    DllCallbackFree($hProc)
-
-    Return $g_hHcFind
-EndFunc
+; 按「类名 + 文字子串（+ 可选：必须处于可用状态）」找控件句柄的实现已抽到
+; Include\Wizard.au3 的 Wizard_FindCtrl()。
+; 之所以要按文字找而不是 `[ID:n]`：NSIS InstallOptions 的页面控件 ID 会和窗口
+; 固定控件撞号，见 Wizard.au3 文件头。
 
 ; 失败收尾：把向导关掉，别把模态窗口留在桌面上（无人值守时更不该留）
 Func Halcon_AbortWizard($hWin)
@@ -549,19 +518,19 @@ Func Halcon_DismissDialogs($hMain)
             ; 安装器的子进程（VSIX 安装器、驱动安装器等）对话框：靠标题 + 窗口类认。
             ; VSIX 安装器是 WPF 程序，窗口类不是 #32770，标题匹配就放行。
             If Not StringRegExp($sTitle, $HALCON_DLG_TITLES) Then ContinueLoop
-            If Halcon_CtrlInfo($h, "class") <> "#32770" _
+            If Wizard_CtrlInfo($h, "class") <> "#32770" _
                     And StringInStr($sTitle, "VSIX Installer") = 0 Then ContinueLoop
         EndIf
 
         ; ---- VSIX 安装器：扩展装没装成功都不管，直接点 关闭 / 取消 ----
         If StringInStr($sTitle, "VSIX Installer") > 0 Then
             Logger_Warn("VSIX 安装器窗口出现（" & $sTitle & "）—— 按「扩展不管成败」处理，点关闭/取消")
-            Halcon_LogWizardControls($h)
+            Wizard_LogControls($h)
 
-            $iBtn = Halcon_FindCtrl($h, "Button", "Close", True)
-            If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "关闭", True)
-            If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "Cancel", True)
-            If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "取消", True)
+            $iBtn = Wizard_FindCtrl($h, "Button", "Close", True)
+            If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "关闭", True)
+            If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "Cancel", True)
+            If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "取消", True)
 
             If $iBtn <> 0 Then
                 ControlClick($h, "", $iBtn)
@@ -576,19 +545,19 @@ Func Halcon_DismissDialogs($hMain)
         EndIf
 
         ; 先判断是不是「要不要重启」的询问
-        Local $bReboot = (Halcon_FindCtrl($h, "Static", "restarted") <> 0) _
-                Or (Halcon_FindCtrl($h, "Static", "reboot") <> 0) _
-                Or (Halcon_FindCtrl($h, "Static", "重新启动") <> 0) _
-                Or (Halcon_FindCtrl($h, "Static", "重启") <> 0)
+        Local $bReboot = (Wizard_FindCtrl($h, "Static", "restarted") <> 0) _
+                Or (Wizard_FindCtrl($h, "Static", "reboot") <> 0) _
+                Or (Wizard_FindCtrl($h, "Static", "重新启动") <> 0) _
+                Or (Wizard_FindCtrl($h, "Static", "重启") <> 0)
 
         If $bReboot Then
             Logger_Warn("安装器询问是否重启（" & $sTitle & "）—— 无人值守装机不能重启机器，点【否】")
-            Halcon_LogWizardControls($h)
+            Wizard_LogControls($h)
 
-            $iBtn = Halcon_FindCtrl($h, "Button", "No", True)
-            If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "否", True)
-            If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "Later", True)
-            If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "稍后", True)
+            $iBtn = Wizard_FindCtrl($h, "Button", "No", True)
+            If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "否", True)
+            If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "Later", True)
+            If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "稍后", True)
 
             If $iBtn <> 0 Then
                 Logger_Info("  找到否按钮 hwnd=" & $iBtn & "，点击")
@@ -603,14 +572,14 @@ Func Halcon_DismissDialogs($hMain)
         EndIf
 
         Logger_Warn("安装器弹出提示框：「" & $sTitle & "」，自动确认")
-        Halcon_LogWizardControls($h)
+        Wizard_LogControls($h)
 
-        $iBtn = Halcon_FindCtrl($h, "Button", "OK", True)
-        If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "确定", True)
-        If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "Yes", True)
-        If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "是", True)
-        If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "Close", True)
-        If $iBtn = 0 Then $iBtn = Halcon_FindCtrl($h, "Button", "关闭", True)
+        $iBtn = Wizard_FindCtrl($h, "Button", "OK", True)
+        If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "确定", True)
+        If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "Yes", True)
+        If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "是", True)
+        If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "Close", True)
+        If $iBtn = 0 Then $iBtn = Wizard_FindCtrl($h, "Button", "关闭", True)
 
         If $iBtn <> 0 Then
             ControlClick($h, "", $iBtn)
@@ -630,7 +599,7 @@ EndFunc
 Func Halcon_ClickNext($hWin)
     If ControlCommand($hWin, "", $HALCON_ID_NEXT, "IsVisible", "") <> 1 Then
         Logger_Err("找不到 Next 按钮，已中止")
-        Halcon_LogWizardControls($hWin)
+        Wizard_LogControls($hWin)
         Return False
     EndIf
 
@@ -643,7 +612,7 @@ Func Halcon_ClickNext($hWin)
 
     If Number(ControlCommand($hWin, "", $HALCON_ID_NEXT, "IsEnabled", "")) <> 1 Then
         Logger_Err("Next 按钮始终不可用，已中止")
-        Halcon_LogWizardControls($hWin)
+        Wizard_LogControls($hWin)
         Return False
     EndIf
 
@@ -651,16 +620,7 @@ Func Halcon_ClickNext($hWin)
     Return True
 EndFunc
 
-; 等页面标题变化；窗口消失也视为变化（安装器可能自行收尾）
-Func Halcon_WaitPageChange($hWin, $sOldPage, $iTimeoutMs)
-    Local $iTick = TimerInit()
-    While TimerDiff($iTick) < $iTimeoutMs
-        Sleep(500)
-        If Not WinExists($hWin) Then Return True
-        If ControlGetText($hWin, "", $HALCON_ID_PAGETITLE) <> $sOldPage Then Return True
-    WEnd
-    Return False
-EndFunc
+; 等页面标题变化的实现见 Include\Wizard.au3 的 Wizard_WaitPageChange()。
 
 ; 安装阶段：挂等待心跳，点掉安装后向导页，等 Finish 出现并点掉，
 ; 最终**等安装器进程退出**（包括点掉最后的「是否重启」询问）。
@@ -736,18 +696,14 @@ Func Halcon_WaitInstall($hWin)
             Logger_Err("安装阶段超时（" & $HALCON_TIMEOUT / 60000 & " 分钟）")
         Else
             Logger_Err("安装阶段中断：向导停在非收尾页面")
-            Halcon_LogWizardControls($hWin)
+            Wizard_LogControls($hWin)
         EndIf
     EndIf
 
     Return $bDone
 EndFunc
 
-; 读 Button（复选框/单选框）的勾选状态（BM_GETCHECK，1 = 选中）。
-Func Halcon_BmGetCheck($h)
-    Local $a = DllCall("user32.dll", "int", "SendMessageW", "hwnd", $h, "uint", 0x00F0, "wparam", 0, "lparam", 0)
-    Return $a[0]
-EndFunc
+; 读复选框 / 单选框勾选状态的实现见 Include\Wizard.au3 的 Wizard_BmGetCheck()。
 
 ; ------------------------------------------------------------------------------
 ; License file 页（实测：安装完成后出现，Back 是禁用的，只能往前走）。
@@ -762,19 +718,19 @@ Func Halcon_LicensePageSkip($hWin)
     Local $bReady = False
 
     If $hNo <> 0 Then
-        If Halcon_BmGetCheck($hNo) = 1 Then
+        If Wizard_BmGetCheck($hNo) = 1 Then
             $bReady = True
         Else
             ControlClick($hWin, "", $HALCON_ID_LICENSE_NO)
             Sleep(500)
-            $bReady = (Halcon_BmGetCheck(ControlGetHandle($hWin, "", $HALCON_ID_LICENSE_NO)) = 1)
+            $bReady = (Wizard_BmGetCheck(ControlGetHandle($hWin, "", $HALCON_ID_LICENSE_NO)) = 1)
             If $bReady Then Logger_Warn("  License file 页：默认选中的是「安装许可文件」，已改回「不安装」")
         EndIf
     EndIf
 
     If Not $bReady Then
         Logger_Err("  License file 页：无法确认「Do not install a license file.」被选中，不点 Next（请人工确认后继续）")
-        Halcon_LogWizardControls($hWin)
+        Wizard_LogControls($hWin)
         Return False
     EndIf
 
@@ -793,8 +749,8 @@ Global $g_iHcReadme = 0
 
 Func Halcon_ReadmeProc($h, $l)
     #forceref $l
-    If Halcon_CtrlInfo($h, "class") = "Button" And Halcon_CtrlInfo($h, "vis") = 1 Then
-        If StringInStr(Halcon_CtrlInfo($h, "text"), "eadme") > 0 _
+    If Wizard_CtrlInfo($h, "class") = "Button" And Wizard_CtrlInfo($h, "vis") = 1 Then
+        If StringInStr(Wizard_CtrlInfo($h, "text"), "eadme") > 0 _
                 And $g_iHcReadme < UBound($g_aHcReadme) Then
             $g_aHcReadme[$g_iHcReadme] = $h
             $g_iHcReadme += 1
@@ -812,8 +768,8 @@ Func Halcon_UncheckReadme($hWin)
 
     For $i = 0 To $g_iHcReadme - 1
         Local $h = $g_aHcReadme[$i]
-        Local $iChk = Halcon_BmGetCheck($h)
-        Logger_Info("  Finish 页复选框「" & Halcon_CtrlInfo($h, "text") & "」勾选=" & $iChk)
+        Local $iChk = Wizard_BmGetCheck($h)
+        Logger_Info("  Finish 页复选框「" & Wizard_CtrlInfo($h, "text") & "」勾选=" & $iChk)
         If $iChk = 1 Then
             ControlClick($hWin, "", $h)
             Sleep(300)
@@ -822,51 +778,11 @@ Func Halcon_UncheckReadme($hWin)
 EndFunc
 
 ; ------------------------------------------------------------------------------
-; 排障用：把向导窗口及其所有子控件（hwnd / 控件 ID / 类名 / 可见 / 可用 / 文字）
-; 写进日志。向导页面变了、按钮文字改了的时候，靠它一次看清全部控件。
+; 排障用的「控件清单 Dump」与读控件属性的实现已抽到 Include\Wizard.au3：
+;   Wizard_CtrlInfo()   —— 读控件的 text / class / id / vis / ena
+;   Wizard_LogControls() —— 把整窗控件清单写进日志
+; 向导页面变了、按钮文字改了的时候，靠 Wizard_LogControls() 一次看清全部控件。
 ; ------------------------------------------------------------------------------
-Global $g_sHcDump = ""
-Global $g_iHcDump = 0
-
-Func Halcon_CtrlInfo($h, $sItem)
-    If $sItem = "text" Then
-        Local $tText = DllStructCreate("wchar[1024]")
-        DllCall("user32.dll", "int", "GetWindowTextW", "hwnd", $h, "ptr", DllStructGetPtr($tText), "int", 1024)
-        Return DllStructGetData($tText, 1)
-    EndIf
-    If $sItem = "class" Then
-        Local $tCls = DllStructCreate("wchar[256]")
-        DllCall("user32.dll", "int", "GetClassNameW", "hwnd", $h, "ptr", DllStructGetPtr($tCls), "int", 256)
-        Return DllStructGetData($tCls, 1)
-    EndIf
-    If $sItem = "id" Then Return DllCall("user32.dll", "int", "GetDlgCtrlID", "hwnd", $h)[0]
-    If $sItem = "vis" Then Return DllCall("user32.dll", "bool", "IsWindowVisible", "hwnd", $h)[0]
-    Return DllCall("user32.dll", "bool", "IsWindowEnabled", "hwnd", $h)[0]
-EndFunc
-
-Func Halcon_DumpProc($h, $l)
-    #forceref $l
-    $g_iHcDump += 1
-    $g_sHcDump &= "    [" & StringFormat("%02d", $g_iHcDump) & "] id=" & _
-            StringFormat("%-6d", Halcon_CtrlInfo($h, "id")) & _
-            " vis=" & Halcon_CtrlInfo($h, "vis") & _
-            " ena=" & Halcon_CtrlInfo($h, "ena") & _
-            " " & StringFormat("%-20s", Halcon_CtrlInfo($h, "class")) & _
-            " [" & Halcon_CtrlInfo($h, "text") & "]" & @CRLF
-    Return 1
-EndFunc
-
-Func Halcon_LogWizardControls($hWin)
-    $g_sHcDump = ""
-    $g_iHcDump = 0
-    Local $hProc = DllCallbackRegister("Halcon_DumpProc", "int", "hwnd;lparam")
-    DllCall("user32.dll", "bool", "EnumChildWindows", "hwnd", $hWin, _
-            "ptr", DllCallbackGetPtr($hProc), "lparam", 0)
-    DllCallbackFree($hProc)
-
-    Logger_Info("    ---- " & WinGetTitle($hWin) & " 的控件清单（" & $g_iHcDump & " 个）----")
-    Logger_Info($g_sHcDump)
-EndFunc
 
 ; ==============================================================================
 ; 补丁 DLL 覆盖

@@ -324,7 +324,7 @@ EndFunc
   （勾选/选单/填路径/点 Next），再等标题变化；
 - 长耗时阶段（真正的安装）用 `Installer_WaitBegin()` / `Installer_WaitEnd()`
   挂等待心跳，界面不会看着像卡死；
-- 遇到**未识别页面**：把整窗控件清单 Dump 进日志（`Halcon_LogWizardControls()`），
+- 遇到**未识别页面**：把整窗控件清单 Dump 进日志（`Wizard_LogControls()`），
   然后**失败退出，绝不乱点**；
 - **安装器弹的提示框要主动点掉**：等待期间扫描属于该进程的窗口，点掉 `OK` / `确定` /
   `Yes` / `是`（**绝不点 `No` / `Cancel`**），并把控件清单写日志；

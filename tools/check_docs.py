@@ -30,6 +30,8 @@ FUNC_PREFIXES = (
     "Precheck_", "PrecheckSystem_", "PrecheckNetwork_", "PrecheckPower_",
     "PrecheckDriver_", "PrecheckAccount_",
     "GuiConfig_", "GuiConfigLayout_", "GuiConfigState_", "GuiPackageList_", "GuiInstall_",
+    "Wizard_",                       # 通用向导自动化助手（HALCON 用）
+    "Halcon_",                       # 各软件安装模块自己的函数
     "Install_", "Action_", "Main",
 )
 
