@@ -74,6 +74,10 @@
 ; ==============================================================================
 
 Func Config_Load()
+    ; 这个开关先读：Config_ScanPackages() 要用它决定列不列「未适配」的目录
+    $g_bShowUnsupported = Config_ParseBool( _
+            IniRead($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_SHOW_UNSUP, $SHOW_UNSUP_DEF))
+
     If Not FileExists($g_sConfigFile) Then
         Config_ScanPackages()
         Return False
@@ -106,10 +110,17 @@ Func Config_Save()
     IniWrite($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_COPYSRC, $g_sCopySource)
     IniWrite($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_COPYDST, $g_sCopyDest)
 
+    ; 未适配目录的显示开关（一般保持 0；排障打开后也会被保存下来）
+    IniWrite($g_sConfigFile, $INI_SEC_GENERAL, $INI_KEY_SHOW_UNSUP, _
+            $g_bShowUnsupported ? "1" : "0")
+
     IniWrite($g_sConfigFile, $INI_SEC_ACCOUNT, $INI_KEY_USER, $g_sUserName)
     IniWrite($g_sConfigFile, $INI_SEC_ACCOUNT, $INI_KEY_PASS, $g_sPassword)
 
     For $i = 0 To $g_iPackageCount - 1
+        ; 未适配的目录（没有安装脚本）不写进配置，免得 [Packages] 段里堆一堆没用的键
+        If $g_aPackages[$i][$PKG_COL_CATEGORY] = $PKG_CAT_UNSUPPORTED Then ContinueLoop
+
         IniWrite($g_sConfigFile, $INI_SEC_PACKAGES, _
                 $g_aPackages[$i][$PKG_COL_FOLDER], $g_aPackages[$i][$PKG_COL_ENABLED])
     Next

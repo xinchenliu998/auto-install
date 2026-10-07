@@ -26,6 +26,7 @@
 
 #include "..\Constants.au3"
 #include "..\Common.au3"
+#include "..\Installer.au3"
 #include "Shared.au3"
 #include "Group.au3"
 
@@ -53,6 +54,14 @@ EndFunc
 ; ==============================================================================
 
 ; 扫描安装包目录下的子目录，生成软件列表（勾选状态取自 config.ini）
+;
+; 【只列出「已适配」的软件】
+;   安装包目录里可能放着尚未接入安装脚本的文件夹（甚至是完全无关的目录）。
+;   只有当 Include\Install\ 下有模块用 Installer_Register() 注册了该目录名时，
+;   这个目录才会进入软件列表 —— 否则界面会列出一堆点了也装不了的东西。
+;
+;   非注册目录默认直接忽略；把 config.ini 的 ShowUnsupported 设成 1 可让它们
+;   也显示出来（排在最后，界面标「(未适配)」，且固定不勾选）。
 Func Config_ScanPackages()
     Local $sPkgDir  = Config_PackagesDirReal()
     Local $aFolders = _FileListToArray($sPkgDir, "*", $FLTA_FOLDERS)
@@ -66,13 +75,21 @@ Func Config_ScanPackages()
         Return 0
     EndIf
 
-    Local $iCount = $aFolders[0]
-    ReDim $g_aPackages[$iCount][$PKG_COL_COUNT]
+    Local $iTotal = $aFolders[0]
 
-    Local $sFolder, $sPath, $sDisplay, $sIni, $sCategory
+    ; AutoIt 数组长度不能为 0，先按最坏情况开，扫完再 ReDim 到实际条数
+    ReDim $g_aPackages[$iTotal][$PKG_COL_COUNT]
 
-    For $i = 1 To $iCount
+    Local $sFolder, $sPath, $sDisplay, $sIni, $sCategory, $bReg
+    Local $iCount = 0
+
+    For $i = 1 To $iTotal
         $sFolder = $aFolders[$i]
+        $bReg    = Installer_IsRegistered($sFolder)
+
+        ; 未注册（尚未适配）的目录：默认不显示
+        If Not $bReg And Not $g_bShowUnsupported Then ContinueLoop
+
         $sPath   = Common_JoinPath($sPkgDir, $sFolder)
         $sIni    = Common_JoinPath($sPath, $FILE_PACKAGE_INI)
 
@@ -80,23 +97,45 @@ Func Config_ScanPackages()
         $sDisplay  = IniRead($sIni, $INI_SEC_PACKAGE, $INI_KEY_DISPLAY, $sFolder)
         $sCategory = IniRead($sIni, $INI_SEC_PACKAGE, $INI_KEY_CATEGORY, "")
 
-        $g_aPackages[$i - 1][$PKG_COL_FOLDER]   = $sFolder
-        $g_aPackages[$i - 1][$PKG_COL_DISPLAY]  = $sDisplay
-        $g_aPackages[$i - 1][$PKG_COL_PATH]     = $sPath
-        $g_aPackages[$i - 1][$PKG_COL_REQUIRED] = _
+        If Not $bReg Then $sDisplay &= " " & $PKG_TAG_UNSUPPORTED   ; 未适配标记
+
+        $g_aPackages[$iCount][$PKG_COL_FOLDER]   = $sFolder
+        $g_aPackages[$iCount][$PKG_COL_DISPLAY]  = $sDisplay
+        $g_aPackages[$iCount][$PKG_COL_PATH]     = $sPath
+        $g_aPackages[$iCount][$PKG_COL_REQUIRED] = _
                 Config_ParseBool(IniRead($sIni, $INI_SEC_PACKAGE, $INI_KEY_REQUIRED, "0"))
 
         ; 必须安装的软件一律归入「必须安装」组，不看它自己写的 Category；
         ; 没写 Category 的软件统一归入兜底分组（$PKG_CAT_DEFAULT，界面显示「未分组」）
-        If $g_aPackages[$i - 1][$PKG_COL_REQUIRED] = 1 Then
-            $g_aPackages[$i - 1][$PKG_COL_CATEGORY] = $PKG_CAT_REQUIRED
+        ; 未适配的软件固定归入「未适配」组，排在最后
+        If Not $bReg Then
+            $g_aPackages[$iCount][$PKG_COL_CATEGORY] = $PKG_CAT_UNSUPPORTED
+        ElseIf $g_aPackages[$iCount][$PKG_COL_REQUIRED] = 1 Then
+            $g_aPackages[$iCount][$PKG_COL_CATEGORY] = $PKG_CAT_REQUIRED
         Else
-            $g_aPackages[$i - 1][$PKG_COL_CATEGORY] = Config_CategoryKey($sCategory)
+            $g_aPackages[$iCount][$PKG_COL_CATEGORY] = Config_CategoryKey($sCategory)
         EndIf
 
-        $g_aPackages[$i - 1][$PKG_COL_ENABLED] = _
-                Number(IniRead($g_sConfigFile, $INI_SEC_PACKAGES, $sFolder, $INI_DEFAULT_ON))
+        ; 未适配的软件不读勾选状态：它没有安装脚本，勾上没有意义
+        If $bReg Then
+            $g_aPackages[$iCount][$PKG_COL_ENABLED] = _
+                    Number(IniRead($g_sConfigFile, $INI_SEC_PACKAGES, $sFolder, $INI_DEFAULT_ON))
+        Else
+            $g_aPackages[$iCount][$PKG_COL_ENABLED] = 0
+        EndIf
+
+        $iCount += 1
     Next
+
+    ; 清掉尾部没填满的行（数组长度不能为 0）
+    If $iCount = 0 Then
+        ReDim $g_aPackages[1][$PKG_COL_COUNT]
+        For $c = 0 To $PKG_COL_COUNT - 1
+            $g_aPackages[0][$c] = ""
+        Next
+    ElseIf $iCount < $iTotal Then
+        ReDim $g_aPackages[$iCount][$PKG_COL_COUNT]
+    EndIf
 
     $g_iPackageCount = $iCount
     Config_ApplyRequired()
