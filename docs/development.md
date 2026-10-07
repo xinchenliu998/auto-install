@@ -125,7 +125,8 @@ auto-install/
 │       ├── everything.au3
 │       ├── wps.au3
 │       ├── hsl-communication-demo.au3
-│       └── dbx.au3
+│       ├── dbx.au3
+│       └── halcon.au3
 └── packages/               # 各软件的安装包 —— 整个目录不入库（见 .gitignore）
     ├── 7zip/               # 每个目录下：安装包 + package.ini（显示名 / 分组 / 必须安装）
     ├── SQLite3/            # 克隆仓库后需自行创建本目录，或在配置界面指向别处
@@ -134,7 +135,7 @@ auto-install/
     ├── wps/
     ├── HslCommunicationDemo/
     ├── DBX/
-    └── halcon/             # 安装包待放入，安装脚本待补
+    └── halcon/             # 主安装包 + 补丁 DLL 目录（halcon 18 x64/）
 ```
 
 > 根目录另有 `.gitignore`：安装包目录、`config.ini`、编译产物、日志、编辑器与系统垃圾文件均不入库。
@@ -310,6 +311,51 @@ EndFunc
 > 这些都统一在 `Installer_InstallSilent()` 与 `Installer_InstallGreen()` 内完成。
 > 安装脚本只负责声明常量和填参数，通常 40 行以内。
 
+**第三类：安装包不支持静默安装 —— 自动操作图形向导**
+
+有些安装包**根本没有静默方式**（实测 HALCON 完整版传 `/S` 会弹
+「Silent installation is only supported by the runtime installer!」并中止，
+官方文档也只把 `/S` 写在 runtime 版下）。这时硬传 `/S` 只会让安装器弹窗等人点确定，
+脚本干等到超时、日志看着像卡死。做法是自动操作向导，范例见
+[`Install/halcon.au3`](../Include/Install/halcon.au3)：
+
+- `Run()` 起安装程序 → `WinWait()` 等向导窗口；
+- 每步用 `ControlGetText($hWin, "", "[ID:1037]")` 读**当前页标题**，按标题分派该页动作
+  （勾选/选单/填路径/点 Next），再等标题变化；
+- 长耗时阶段（真正的安装）用 `Installer_WaitBegin()` / `Installer_WaitEnd()`
+  挂等待心跳，界面不会看着像卡死；
+- 遇到**未识别页面**：把整窗控件清单 Dump 进日志（`Halcon_LogWizardControls()`），
+  然后**失败退出，绝不乱点**；
+- **安装器弹的提示框要主动点掉**：等待期间扫描属于该进程的窗口，点掉 `OK` / `确定` /
+  `Yes` / `是`（**绝不点 `No` / `Cancel`**），并把控件清单写日志；
+  否则一个「请点确定」的框就能让脚本卡到超时、日志上还看不出原因；
+- **「已安装」的判据要挑对**：别用「某个文件在不在」—— 安装**中途**那文件可能就在了
+  （实测 HALCON 装到约 40% 时核心 DLL 已经存在）。用安装器**最后一步**才写的登记
+  （卸载项 / `InstallLocation`）当凭据；没有登记就按「未完成」处理、重新安装；
+- **等待的终点是「安装器进程退出」，不是「主窗口关闭」**：点完 Finish 主窗口会**先关**，
+  「是否重启」等询问是之后才弹的**独立窗口**——只盯窗口就会把弹框孤儿化
+  （HALCON 真机连踩 2 次：重启询问挂到超时没人点）。等待循环每轮都扫弹框，
+  直到 `ProcessExists(pid)` 为假；
+- **「要不要重启」是「只点确认类」的例外**：一律点【否】（实测 `否(&N)` 用
+  `ControlClick` + `[TEXT:否(&N)]` 有效），绝不点 Yes——无人值守装机不能替人重启；
+  找不到「否」就不动、留给人工；
+- **安装完成 ≠ 流程结束**：Finish 之前可能还有独立向导页（HALCON 实测有
+  License file、Additional 3rd party software 两页，按钮仍是 `&Next`）。
+  注意安装进度页的按钮文字也是 `&Next` 但**禁用**——要按「按钮可用 +
+  页标题 ≠ Installing」区分，别把进度页当向导页；
+- **子进程可能是 WPF 程序**（HALCON 的 VSIX 安装器）：窗口类不是 `#32770`
+  （是 `HwndWrapper[...]`）、按钮读不出 Win32 文字——按标题识别放行，
+  找不到按钮就用 `WinClose()` 发关闭消息兜底；
+- **32 位安装器（NSIS x86）手动安装默认落 `Program Files (x86)`**：
+  「已安装检测」候选要把 (x86) 默认位置也列上，否则会把已装的判成未装；
+- 控件 ID 由 NSIS 的 InstallOptions 按页分配（1200/1201…），**换安装包版本必须重新核对**；
+  注意**页面控件 ID 会和窗口固定控件撞号**（实测 HALCON 许可页有 2 个 `id=1034`），
+  这时 `[ID:n]` 会命中错的那个 —— 要按「类名 + 文字」取句柄。
+
+> 「找到窗口/控件就能点」不等于「流程对」：向导的**页顺序、控件 ID、以及某些页的前置条件**
+> （例如 HALCON 的许可协议页必须先滚到底、`I accept` 才从禁用变可用）都只能靠
+> **真机跑一遍**摸出来。别照着截图猜。
+
 ### 3. 登记到安装模块汇总
 
 在 `Include/Install/All.au3` 的「安装模块列表」追加一行：
@@ -346,10 +392,12 @@ python tools/check_docs.py     # 文档（含 docs/packages/ 索引完整性）
 | 注册目录名 | `Installer_Register()` 的第一个参数必须与**安装包目录**下的目录名**完全一致**，否则永远不会被调用 |
 | 取安装包路径 | 一律用 `Installer_PackagePath()`，它走的是配置里的安装包目录，不要自己拼 `@ScriptDir\packages` |
 | 函数签名 | `Func Install_XXX($sInstallRoot)`，成功返回 `True`，失败返回 `False` |
-| **禁止重复实现流程** | 「已安装检测 / 执行 / 超时 / 结果校验 / 日志」一律走 `Installer_InstallSilent()` 或 `Installer_InstallGreen()`，安装脚本里只填参数 |
+| **禁止重复实现流程** | 「已安装检测 / 执行 / 超时 / 结果校验 / 日志」一律走 `Installer_InstallSilent()` 或 `Installer_InstallGreen()`，安装脚本里只填参数。**安装包确实不支持静默时**（先查打包工具与官方文档，别猜）才改走 GUI 自动化，做法见上文「第三类」 |
+| **静默安装可行性** | 传 `/S` 之前先确认它真的支持：看 PE 资源里的打包工具（`7z l` 可见 `Built using NSIS xx`）并查官方文档。不支持时安装器会弹窗等人点确定，脚本等到超时、日志像卡死 —— 这是「假死」，不是慢 |
 | 安装根目录 | 安装包类软件装到各自的官方默认路径（多数在 Program Files，也有落在用户目录的，如 DBX）；**绿色软件**才解压到 `$sInstallRoot` |
 | 幂等性 | 通用流程已保证：已安装时直接返回 `True`，不会重复安装 |
-| 已安装检测 | 通用流程内部用 `Installer_FindInstalled()`：先查预期路径、**再查整个系统 PATH** —— 软件可能装在别的盘，或绿色版已经挂在 PATH 上 |
+| 已安装检测 | 通用流程内部用 `Installer_FindInstalled()`：先查预期路径、**再查整个系统 PATH** —— 软件可能装在别的盘，或绿色版已经挂在 PATH 上。**但多个版本并存的软件必须关掉 PATH 兜底**（传 `$bSearchPath = False`），否则会认错版本 |
+| **多版本并存** | 同一机器上可能装着同一软件的多个版本（如 HALCON 18.11 与 26.05）。此时 **`PATH`、`%XXXROOT%` 这类全局线索都不可信** —— 它们指向的往往是「最后装的那个版本」。预期路径必须**带版本字样**（如 `HALCON-18.11-Progress`），并且在做破坏性操作（覆盖 / 删除）前**再复核一次目标版本**（目录名 + 文件版本资源） |
 | 结果校验 | 通用流程内部做：不只看退出码，还会再确认主程序能找到 |
 | 找依赖工具 | 同样要覆盖 PATH。**凡是「定位某个外部程序」的逻辑，一律「常见位置 → 系统 PATH」两级查找**，只查固定目录会漏判（参考 `Common_Find7Zip()`） |
 | 显示名 / 分组 / 必须安装 | 都写在 `package.ini` 里（见本节第 1 步），界面只读不写；安装脚本不参与 |
@@ -407,7 +455,7 @@ python tools/check_docs.py     # 文档（含 docs/packages/ 索引完整性）
 
 | 函数 | 用途 |
 | --- | --- |
-| `Installer_InstallSilent($sDisplay, $sSetup, $sArgs, $sExeName, $vExpected, $iTimeoutMs)` | **静默安装全流程**：安装包存在性 → 已安装检测 → 执行安装 → 超时处理 → 结果校验 → 日志。返回 `True` / `False` |
+| `Installer_InstallSilent($sDisplay, $sSetup, $sArgs, $sExeName, $vExpected, $iTimeoutMs, $bSearchPath)` | **静默安装全流程**：安装包存在性 → 已安装检测 → 执行安装 → 超时处理 → 结果校验 → 日志。返回 `True` / `False`。`$bSearchPath` 见下 |
 | `Installer_InstallGreen($sDisplay, $sZip, $sDest, $sExeName)` | **绿色解压全流程**：已安装检测 → 解压 → 结果校验 → 日志。成功返回主程序完整路径，失败返回 `""` |
 | `Installer_RunCopy()` | **资源拷贝**：把「拷贝源目录」整体拷到「拷贝目标目录」下的同名子目录（robocopy `/E`，覆盖式）。未配置源目录时直接返回 `True` |
 
@@ -419,7 +467,7 @@ python tools/check_docs.py     # 文档（含 docs/packages/ 索引完整性）
 | `Installer_RunWaitBeat($sLabel, $sCmd, $sWorkDir, $iTimeoutMs)` | 同 `Common_RunWait()`，额外**持续输出等待心跳**（界面每秒刷新「已等待 X 分 Y 秒」+ 定期写日志）。安装 / 解压 / 拷贝都走它，避免长时间无输出被误认为卡死 |
 | `Installer_ExtractZip($sZip, $sDest)` | 解压 zip，自动在 7-Zip 命令行与 PowerShell `Expand-Archive` 之间回退 |
 | `Installer_AddToSystemPath($sDir)` | 把目录写入系统 PATH（去重 + 广播 `WM_SETTINGCHANGE`） |
-| `Installer_FindInstalled($vExpected, $sExeName)` | 已安装检测：先查预期路径（字符串或候选数组），再查整个系统 PATH |
+| `Installer_FindInstalled($vExpected, $sExeName, $bSearchPath)` | 已安装检测：先查预期路径（字符串或候选数组），再查整个系统 PATH。`$bSearchPath` 默认 `True`；**同一机器上装了多个版本时必须传 `False`**，否则 PATH / `%XXXROOT%` 指向的**别的版本**会被当成目标 |
 | `Common_Find7Zip()` | 定位解压用的 7-Zip：常见安装位置 → 整个系统 PATH |
 | `Common_ResolvePath($sPath, $sBase)` | 解析路径：绝对路径（盘符 / UNC）原样返回，相对路径拼到 `$sBase` 下 |
 | `Common_FileName($sPath)` | 取路径的最后一段（文件名或文件夹名） |

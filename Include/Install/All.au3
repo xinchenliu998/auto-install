@@ -31,3 +31,4 @@
 #include "wps.au3"
 #include "hsl-communication-demo.au3"
 #include "dbx.au3"
+#include "halcon.au3"

@@ -333,6 +333,14 @@ tools/precheck_smoke.au3      前置检查只读探针冒烟测试（不修改�
 | 给 RichEdit 设颜色时「先设色再追加文字」 | 颜色会整体错位一行（`SCF_SELECTION` 作用在光标**前**一个字符）。要**先追加 → 选中新追加的范围 → 再上色** |
 | RichEdit 的颜色口径搞错 | 颜色是 **COLORREF(BGR)**，不是 GUI 函数的 RGB（用 `Logger_RgbToColorRef()` 转）。另外 `_GUICtrlRichEdit_GetTextLength()` 的 `$bChars=True` **不是纯字符数** —— 中文每字会多算 1，别拿它当 `SetSel` 的坐标（见下一行） |
 | 用 `_GUICtrlRichEdit_GetTextLength()` 算 `SetSel` 的位置（日志串色） | RichEdit 有**三套字符计数**：`GetTextLength($h,True,True)` 中文每字多算 1；`StringLen(GetText)` 把 `@CRLF` 当 2；而 `SetSel`/`GetSel` 的内部坐标把 `@CRLF` 当 1。混用会逐行累积偏移 →「从某行开始串色」。**别自己算位置**：追加后用 `_GUICtrlRichEdit_GetSel()` 读回末尾，着色区间取 `[上次末尾, 本次末尾)`，全程只用 `SetSel` 那套坐标 |
+| 用 PATH / `%XXXROOT%` 之类的全局线索去定位「某个**版本**的安装目录」 | 多版本并存时这些线索指向的往往是别的版本。预期路径要**带版本字样**（`HALCON-18.11-Progress`），并给 `Installer_InstallSilent()` / `Installer_FindInstalled()` 传 `$bSearchPath = False` 关掉 PATH 兜底 —— 否则「已安装检测」会误判成已装而跳过安装，补丁也会打到别的版本上。HALCON 18.11 / 26.05 实测踩过 |
+| 破坏性操作（覆盖 / 删除）前只确认「文件存在」 | 「存在」不等于「是目标版本」。覆盖前要**复核目标版本**：目录名带版本字样 + `FileGetVersion()` 读文件版本资源（HALCON 26.05 = `26.5.0.0`、18.11 = `18.11.0.1`，区分干净）。宁可报错不装，也不能把别的版本改坏 |
+| 安装包没有静默安装方式，却硬传 `/S` | **先确认它到底支不支持静默**：看 PE 资源里的打包工具（`7z l` 可见 `Built using NSIS xx`），并查官方文档。实测 HALCON 完整版传 `/S` 会弹「Silent installation is only supported by the runtime installer!」并中止 —— 而 NSIS 的 `MessageBox` 会**等人点确定**，脚本只能干等到超时（看着像卡死）。不支持就改成 **GUI 自动化**（范例见 [`Include/Install/halcon.au3`](Include/Install/halcon.au3)）：用 `WinWait`/`ControlClick`/`ControlCommand` 驱动向导，按**页面标题**分派动作，遇到**未识别页面就把整窗控件清单 Dump 进日志**再失败退出（绝不乱点） |
+| 只看「某个文件在不在」就认定软件**已安装** | 安装**中途**那个文件可能就已经写进去了（实测 HALCON 装到约 40% 时 `bin\x64-win64\halcon.dll` 已存在）。用它当判据，会把「上次装到一半」的机器当成装好了 → 跳过安装、只打补丁，留下一套半残的安装且日志看不出异常。要用**安装器自己留下的登记**当凭据（如 HALCON 的卸载登记 `InstallLocation`，安装器最后一步才写）；没有登记就按「未完成」处理、重新装 |
+| 等安装器/外部程序时不管它弹出的提示框 | 提示框会**等人点确定**，脚本一直等到超时，界面上的「已等待」照常跳动 → 看起来像卡死但日志无异常。典型：安装器写环境变量时，目标机 `PATH` 一长就弹「可能超出最大长度」。做法：等待期间主动扫描属于该进程的窗口（或标题含产品名的 `#32770` 对话框），把**确认类**按钮点掉（**只点 OK / 确定 / Yes / 是，绝不点 No / Cancel**），并把整窗控件清单写进日志留审计。**例外（优先级更高）**：问「要不要重启」的框一律点【否】，绝不点 Yes —— 无人值守不能替人重启机器 |
+| 以「主窗口关闭」判定安装/向导流程结束 | 点完 Finish 后主窗口会**先关**，「是否重启」等询问是之后才弹的**独立窗口**——只盯窗口就把弹框孤儿化了（HALCON 真机连踩 2 次：重启询问挂到超时没人点）。等待终点要用**安装器进程退出**（`ProcessExists(pid)`），循环里持续扫弹框 |
+| 安装点完 Install/Finish 就认为没有后续了 | HALCON 实测点完 Finish **之前**还有两页独立向导（License file、Additional 3rd party software，按钮仍是 `&Next`），Finish 之后还弹「是否重启」。注意安装进度页的按钮文字也是 `&Next` 但**禁用**——要按「按钮可用 + 页标题 ≠ Installing」区分 |
+| 32 位安装器（NSIS x86）手动安装的默认位置没算进候选 | 这类安装器不填目录时默认装到 `Program Files (x86)`（HALCON 18.11 实测）。人工装/重装过的机器上，「已安装检测」候选要把 (x86) 默认位置也列上（版本字样校验不变），否则会把已装的判成未装 → 触发重装，而重装会**先删掉原目录** |
 | 声称「已编译通过」「已实测通过」 | 语法检查只能证明语法正确；行为、界面、外部命令参数需在目标机实测 |
 
 ---

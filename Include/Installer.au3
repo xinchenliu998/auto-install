@@ -152,10 +152,19 @@ EndFunc
 ;                 · 数组   —— 多个候选（文件或目录均可），逐个判断
 ;                 · ""     —— 跳过预期路径，直接查 PATH
 ;   $sExeName   主程序文件名，用于在系统 PATH 中查找
+;   $bSearchPath 预期路径都没命中时，是否继续查整个系统 PATH（默认 True）。
 ;
 ; 查找顺序：预期路径 -> 整个系统 PATH。
 ; 查 PATH 是为了覆盖「装在别的盘 / 目录」或「绿色版已挂在 PATH 上」的情况。
-Func Installer_FindInstalled($vExpected, $sExeName)
+;
+; 【什么时候必须传 False】
+;   同一台机器上装了**多个版本**的同一软件时必须传 False ——
+;   PATH、`%XXXROOT%` 这类全局线索指向的可能是**别的版本**，光看「文件在不在」
+;   根本区分不了版本，会把另一个版本的安装当成目标（甚至把补丁打上去）。
+;   实测踩过：HALCON 18.11 与 26.05 并存，PATH 与 HALCONROOT 都指向 26.05，
+;   于是「已安装检测」误判成 18.11 已装、补丁也覆盖到了 26.05 的目录上。
+;   这种情况要自己给出**带版本字样**的预期路径，并传 False 关掉 PATH 兜底。
+Func Installer_FindInstalled($vExpected, $sExeName, $bSearchPath = True)
     If IsArray($vExpected) Then
         For $i = 0 To UBound($vExpected) - 1
             If $vExpected[$i] <> "" And FileExists($vExpected[$i]) Then Return $vExpected[$i]
@@ -163,6 +172,8 @@ Func Installer_FindInstalled($vExpected, $sExeName)
     ElseIf $vExpected <> "" Then
         If FileExists($vExpected) Then Return $vExpected
     EndIf
+
+    If Not $bSearchPath Then Return ""
 
     Return Common_Which($sExeName)
 EndFunc
@@ -262,10 +273,13 @@ EndFunc
 ;   $sExeName    安装后主程序文件名，用于在系统 PATH 中查找
 ;   $vExpected   预期安装路径（字符串 / 数组 / ""），见 Installer_FindInstalled()
 ;   $iTimeoutMs  安装超时（毫秒），默认 $TIMEOUT_INSTALL
+;   $bSearchPath 已安装检测是否允许退回查系统 PATH（默认 True）。
+;                **同一机器上有多个版本时必须传 False** —— 否则 PATH 指向的别的版本
+;                会被当成「已安装」，安装被静默跳过；详见 Installer_FindInstalled()。
 ;
 ; 返回 True / False。
 Func Installer_InstallSilent($sDisplay, $sSetup, $sArgs, $sExeName, _
-        $vExpected = "", $iTimeoutMs = $TIMEOUT_INSTALL)
+        $vExpected = "", $iTimeoutMs = $TIMEOUT_INSTALL, $bSearchPath = True)
 
     If Not FileExists($sSetup) Then
         Logger_Err($sDisplay & "：安装包不存在 " & $sSetup)
@@ -273,7 +287,7 @@ Func Installer_InstallSilent($sDisplay, $sSetup, $sArgs, $sExeName, _
     EndIf
 
     ; ---- 已安装检测 ----
-    Local $sFound = Installer_FindInstalled($vExpected, $sExeName)
+    Local $sFound = Installer_FindInstalled($vExpected, $sExeName, $bSearchPath)
     If $sFound <> "" Then
         Logger_Info("已检测到 " & $sDisplay & "，跳过安装：" & $sFound)
         Return True
@@ -295,13 +309,18 @@ Func Installer_InstallSilent($sDisplay, $sSetup, $sArgs, $sExeName, _
     EndIf
 
     ; ---- 结果校验：不能只看退出码，还要能找到主程序 ----
-    $sFound = Installer_FindInstalled($vExpected, $sExeName)
+    $sFound = Installer_FindInstalled($vExpected, $sExeName, $bSearchPath)
     If $sFound <> "" Then
         Logger_Info("退出码 " & $iRet & "，已确认 " & $sDisplay & " 安装结果：" & $sFound)
         Return True
     EndIf
 
-    Logger_Err($sDisplay & "：退出码 " & $iRet & "，但在预期路径与系统 PATH 中均未找到 " & $sExeName)
+    If $bSearchPath Then
+        Logger_Err($sDisplay & "：退出码 " & $iRet & "，但在预期路径与系统 PATH 中均未找到 " & $sExeName)
+    Else
+        Logger_Err($sDisplay & "：退出码 " & $iRet & "，但在预期路径中未找到 " & $sExeName & _
+                "（已按要求不做 PATH 兜底搜索，避免匹配到别的版本）")
+    EndIf
     Return False
 EndFunc
 

@@ -87,6 +87,30 @@
     反过来（先设色再追加）会因为 `SCF_SELECTION` 作用于光标前一个字符而整体错位一行。
     颜色常量是 **COLORREF(BGR)**，与 GUI 函数的 RGB 不同，用 `Logger_RgbToColorRef()` 转换。
 
+15. **同一机器上装了多个版本的软件时，`PATH` / `%XXXROOT%` 这类全局线索不可信。**
+    它们指向的往往是「最后装的那个版本」。定位某个版本的安装目录时，预期路径必须
+    **带版本字样**（如 `HALCON-18.11-Progress`），并给 `Installer_InstallSilent()` /
+    `Installer_FindInstalled()` 传 `$bSearchPath = False` 关掉 PATH 兜底；
+    否则「已安装检测」会误判、破坏性操作（覆盖 / 删除）会打到别的版本上。
+    **做破坏性操作前再复核一次目标版本**（目录名 + `FileGetVersion()` 读版本资源）。
+    实测踩过：HALCON 18.11 与 26.05 并存，补丁 DLL 被覆盖到了 26.05 的 `bin\x64-win64`。
+
+16. **安装包不支持静默安装时，不要硬传 `/S`。**
+    先确认打包工具与官方文档：HALCON 完整版实测传 `/S` 会被拒
+    （「Silent installation is only supported by the runtime installer!」），
+    而 NSIS 的 `MessageBox` 会**等人点确定** → 脚本干等到超时，日志看着像卡死。
+    这种包只能走 **GUI 自动化**（范例 `Include/Install/halcon.au3`）：
+    `WinWait` / `ControlClick` / `ControlCommand` 驱动向导，**按页面标题分派**每页动作，
+    遇到未识别页面就 Dump 整窗控件清单再失败退出，**绝不乱点**。
+
+17. **安装/向导流程的等待终点是「安装器进程退出」，不是「主窗口关闭」。**
+    点完 Finish 后主窗口会**先关**，「是否重启」等询问是之后才弹的**独立窗口**——
+    只盯窗口就会把弹框孤儿化（HALCON 真机连踩 2 次：重启询问挂到超时没人点）。
+    等待循环每轮都要扫弹框。「要不要重启」**一律点【否】**，绝不点 Yes——
+    无人值守不能替人重启机器，这条**优先于**「只点确认类按钮」的规则。
+    另外 32 位安装器（NSIS x86）手动安装的默认位置是 `Program Files (x86)`，
+    「已安装检测」候选要把 (x86) 也列上，否则会把已装的判成未装（重装会先删原目录）。
+
 ---
 
 ## 改完必须跑

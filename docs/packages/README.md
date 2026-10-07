@@ -11,7 +11,6 @@
 > 配置界面扫描安装包目录时只收「已适配」的目录（已有 `Installer_Register()` 注册），
 > 光有安装包、没有脚本的目录会被忽略（排障时把 `config.ini` 的
 > `[General] ShowUnsupported` 设成 `1` 可让它们以「(未适配)」显示，见 [`../usage.md`](../usage.md)）。
-> HALCON 一行属于这种情况。
 
 | 软件 | 分组 | 说明文档 | 安装包目录 | 安装脚本 |
 | --- | --- | --- | --- | --- |
@@ -21,7 +20,7 @@
 | Sublime Text | 开发工具（`dev`） | [sublime-text.md](sublime-text.md) | `packages/Sublime Text/` | [`Include/Install/sublime-text.au3`](../../Include/Install/sublime-text.au3) |
 | DBX | 开发工具（`dev`） | [dbx.md](dbx.md) | `packages/DBX/` | [`Include/Install/dbx.au3`](../../Include/Install/dbx.au3) |
 | HslCommunicationDemo | 调试工具（`debug`） | [hsl-communication-demo.md](hsl-communication-demo.md) | `packages/HslCommunicationDemo/` | [`Include/Install/hsl-communication-demo.au3`](../../Include/Install/hsl-communication-demo.au3) |
-| HALCON | 机器视觉（`vision`） | [halcon.md](halcon.md) | `packages/halcon/` | _（待实现）_ |
+| HALCON | 机器视觉（`vision`） | [halcon.md](halcon.md) | `packages/halcon/` | [`Include/Install/halcon.au3`](../../Include/Install/halcon.au3) |
 | WPS Office | 办公软件（`office`） | [wps.md](wps.md) | `packages/wps/` | [`Include/Install/wps.au3`](../../Include/Install/wps.au3) |
 
 ## 文档模板
