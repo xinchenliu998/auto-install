@@ -42,6 +42,11 @@ Global $g_sCopyDest     = ""
 Global $g_sUserName     = ""        ; 开机账户（前置检查用，见 Precheck\Account.au3）
 Global $g_sPassword     = ""
 
+; 是否在软件列表里显示「未适配」（安装包目录里有、但没写安装脚本）的目录。
+; 默认关闭 —— 列表只放能真正安装的软件；排障时把 config.ini 的
+; [General] ShowUnsupported 设成 1，这些目录才会以「(未适配)」形式露出来。
+Global $g_bShowUnsupported = False
+
 ; 软件列表：[i][$PKG_COL_*]
 Global $g_aPackages[1][$PKG_COL_COUNT]
 Global $g_iPackageCount = 0

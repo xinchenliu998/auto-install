@@ -7,6 +7,12 @@
 ;   · 勾选状态读写、全选 / 全不选 / 反选、已选计数；
 ;   · 「必须安装」的软件锁定为已勾选，不参与全不选 / 反选。
 ;
+; 【只有已适配的软件才进列表】
+;   列表内容由 Config_ScanPackages() 决定：安装包目录下没有对应安装脚本
+;   （Installer_Register 未注册）的目录默认不出现；排障时把 config.ini 的
+;   [General] ShowUnsupported 设成 1，它们才会以「(未适配)」显示在最后，
+;   且勾选框始终不可勾（本模块负责把它按回去）。
+;
 ; 控件 ID 存在 $g_idPkgList / $g_idCount（在 Gui\Config.au3 里声明），
 ; 本模块只负责操作它们，不创建窗口、不碰布局。
 ;
@@ -64,7 +70,7 @@ Func GuiPackageList_Fill()
 
     Local $iCount = Config_PackageCount()
     If $iCount = 0 Then
-        _GUICtrlListView_AddItem($g_idPkgList, "（未在安装包目录下发现任何软件子目录）")
+        _GUICtrlListView_AddItem($g_idPkgList, "（安装包目录下没有已适配的软件）")
         $g_iSelCount = -1
         $g_iSelTotal = -1
         GUICtrlSetData($g_idCount, "已选 0 / 0")
@@ -162,12 +168,22 @@ EndFunc
 ; ------------------------------------------------------------------------------
 
 ; 「必须安装」的软件锁定为已勾选。用户点掉它的复选框后，由空闲轮询（约 60ms）补回来。
+; 「未适配」的软件反向锁定：没有安装脚本，勾上也没用，一律保持不勾。
 Func GuiPackageList_EnforceRequired()
     For $i = 0 To Config_PackageCount() - 1
-        If Config_PackageRequired($i) And Not _GUICtrlListView_GetItemChecked($g_idPkgList, $i) Then
+        If GuiPackageList_IsUnsupported($i) Then
+            If _GUICtrlListView_GetItemChecked($g_idPkgList, $i) Then
+                _GUICtrlListView_SetItemChecked($g_idPkgList, $i, False)
+            EndIf
+        ElseIf Config_PackageRequired($i) And Not _GUICtrlListView_GetItemChecked($g_idPkgList, $i) Then
             _GUICtrlListView_SetItemChecked($g_idPkgList, $i, True)
         EndIf
     Next
+EndFunc
+
+; 该条目是否属于「未适配」组（没有安装脚本，仅排障时显示）
+Func GuiPackageList_IsUnsupported($i)
+    Return (Config_PackageCategory($i) = $PKG_CAT_UNSUPPORTED)
 EndFunc
 
 Func GuiPackageList_CountSelected()
@@ -196,7 +212,8 @@ EndFunc
 
 Func GuiPackageList_SetAll($bChecked)
     For $i = 0 To Config_PackageCount() - 1
-        ; 「必须安装」的软件不参与「全不选」
+        ; 「必须安装」的软件不参与「全不选」；「未适配」的怎么都不勾
+        If GuiPackageList_IsUnsupported($i) Then ContinueLoop
         If $bChecked Or Not Config_PackageRequired($i) Then
             _GUICtrlListView_SetItemChecked($g_idPkgList, $i, $bChecked)
         EndIf
@@ -207,15 +224,17 @@ EndFunc
 Func GuiPackageList_Invert()
     For $i = 0 To Config_PackageCount() - 1
         If Config_PackageRequired($i) Then ContinueLoop    ; 锁定项不参与反选
+        If GuiPackageList_IsUnsupported($i) Then ContinueLoop
         _GUICtrlListView_SetItemChecked($g_idPkgList, $i, _
                 Not _GUICtrlListView_GetItemChecked($g_idPkgList, $i))
     Next
     GuiPackageList_UpdateCount()
 EndFunc
 
-; 把列表里的勾选状态写回配置对象
+; 把列表里的勾选状态写回配置对象（未适配的不写，它本来也不参与）
 Func GuiPackageList_WriteToConfig()
     For $i = 0 To Config_PackageCount() - 1
+        If GuiPackageList_IsUnsupported($i) Then ContinueLoop
         Config_SetPackageEnabled($i, _GUICtrlListView_GetItemChecked($g_idPkgList, $i))
     Next
 EndFunc

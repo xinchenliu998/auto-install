@@ -163,9 +163,9 @@ auto-install/
 | `Config.au3` | 配置模块**入口**：只做两件跨配置域的整批操作 | `Config_Load()`、`Config_Save()` |
 | `Config/Shared.au3` | 配置模块共享底座：全局状态（`$g_*`）与通用小工具 | `Config_Init()`、`Config_File()`、`Config_ParseBool()`、`Config_ArrayFind()`、`Config_ArrayAppendUnique()` |
 | `Config/General.au3` | 通用配置项：安装根目录 / 资源拷贝目录 / 开机账户 | `Config_InstallRootReal()`、`Config_CopySourceReal()`、`Config_CopyDestReal()`、`Config_UserName()`、`Config_Password()` |
-| `Config/Packages.au3` | 安装包目录 + 软件列表：扫描时一并读出 `package.ini` 的 `Category` / `Required` | `Config_ScanPackages()`、`Config_RescanPackages()`、`Config_GetSelected()`、`Config_PackageCategory()`、`Config_PackageRequired()`、`Config_PackagesDirReal()` |
+| `Config/Packages.au3` | 安装包目录 + 软件列表：扫描时一并读出 `package.ini` 的 `Category` / `Required`；**只收已注册安装脚本的目录** | `Config_ScanPackages()`、`Config_RescanPackages()`、`Config_GetSelected()`、`Config_PackageCategory()`、`Config_PackageRequired()`、`Config_PackagesDirReal()` |
 | `Config/Group.au3` | 软件分组：键归一化 / 显示顺序 / 中文显示名 +「必须安装」强制勾选 | `Config_BuildGroups()`、`Config_CategoryName()`、`Config_CategoryKey()`、`Config_ApplyRequired()` |
-| `Installer.au3` | 注册表、调度、**通用安装流程**、安装辅助（解压 / 写 PATH / 等待心跳） | `Installer_Register()`、`Installer_RunAll()`、`Installer_InstallSilent()`、`Installer_InstallGreen()`、`Installer_RunWaitBeat()`、`Installer_SetWaitNotify()`、`Installer_FindInstalled()`、`Installer_ExtractZip()`、`Installer_AddToSystemPath()` |
+| `Installer.au3` | 注册表、调度、**通用安装流程**、安装辅助（解压 / 写 PATH / 等待心跳） | `Installer_Register()`、`Installer_IsRegistered()`、`Installer_FindFunc()`、`Installer_RunAll()`、`Installer_InstallSilent()`、`Installer_InstallGreen()`、`Installer_RunWaitBeat()`、`Installer_SetWaitNotify()`、`Installer_FindInstalled()`、`Installer_ExtractZip()`、`Installer_AddToSystemPath()` |
 | `Precheck.au3` | 前置检查入口：结果汇总与「继续 / 中止」确认 | `Precheck_RunAll()` |
 | `Precheck/Base.au3` | 前置检查共享底座：状态（问题列表 / 设备列表 / 家庭版标记）与辅助函数 | `Precheck_AddIssue()`、`Precheck_Capture()`、`Precheck_RunCmd()`、`Precheck_LogBefore()` |
 | `Precheck/System.au3` 等 | 前置检查各项：系统版本、ping 与远程桌面、电源、驱动、开机账户 | `PrecheckSystem_Check()`、`PrecheckNetwork_Check()`、`PrecheckPower_Check()`、`PrecheckDriver_Check()`、`PrecheckAccount_Check()` |
@@ -233,6 +233,10 @@ Required=0
   换了分组想让它排到别处，就改 `$PKG_CAT_ORDER` 里的顺序。
 - `Required`：`1` 表示**必须安装** —— 固定归入「必须安装」组、排在最前，且界面与 `config.ini`
   都**取消不掉**它的勾选（保证出厂必装项漏不了）。省略按 `0`。
+
+> **⚠️ 光把包放进目录还不够 —— 必须在第 2 步用 `Installer_Register()` 注册该目录名，**
+> **软件才会出现在配置界面的软件列表里。** `Config_ScanPackages()` 只收「已适配」的目录
+> （见下文「软件列表的过滤规则」），目录名与注册名**必须完全一致**（含大小写）。
 
 > **⚠️ `package.ini` 必须保持 ASCII、不要带 BOM。** AutoIt 的 `IniRead` 按 **ANSI 代码页**
 > 读无 BOM 的文件：中文值存 UTF-8 会读成乱码，存 UTF-8 **带 BOM** 则连 `[Package]` 段都读不到。
@@ -349,10 +353,25 @@ python tools/check_docs.py     # 文档（含 docs/packages/ 索引完整性）
 | 结果校验 | 通用流程内部做：不只看退出码，还会再确认主程序能找到 |
 | 找依赖工具 | 同样要覆盖 PATH。**凡是「定位某个外部程序」的逻辑，一律「常见位置 → 系统 PATH」两级查找**，只查固定目录会漏判（参考 `Common_Find7Zip()`） |
 | 显示名 / 分组 / 必须安装 | 都写在 `package.ini` 里（见本节第 1 步），界面只读不写；安装脚本不参与 |
-| 分组顺序 | 由 `$PKG_CAT_ORDER` 决定：「必须安装」固定第一，其余按表内先后，表里没有的分组接在最后（按扫描顺序） |
+| 分组顺序 | 由 `$PKG_CAT_ORDER` 决定：「必须安装」固定第一、「未适配」固定最后，其余按表内先后，表里没有的分组接在最后（按扫描顺序） |
 | 执行顺序 | 由安装包目录的扫描顺序（目录名排序）决定，与 `#include` 的先后无关；与列表里的分组显示顺序无关 |
 
 > 未写安装脚本的软件**不会报错中断**，只会在日志中标记为「跳过」，并提示需要补充的模块名。
+
+### 软件列表的过滤规则
+
+`Config_ScanPackages()` 扫描**安装包目录**时**不是列出全部子目录** —— 只保留「已适配」的：
+
+- **已适配** = `Installer_IsRegistered($sFolder)` 为真，即 `Include/Install/` 下已有模块调用
+  `Installer_Register()` 注册了该目录名。这些目录照常显示、可勾选、可安装。
+- **未适配**（目录在、但没接安装脚本）**默认直接忽略**，不进软件列表 —— 免得列出一堆点了也装不了的东西。
+  排障时把 `config.ini` 的 `[General] ShowUnsupported` 设成 `1`，它们会以
+  「显示名 (未适配)」出现在最后的「未适配（暂无安装脚本）」组（键 `$PKG_CAT_UNSUPPORTED`）里，
+  **固定不勾选**、不参与全选 / 反选，也不会被写进 `config.ini` 的 `[Packages]` 段。
+
+> 注意 `Config\Packages.au3` 为此 `#include` 了 `..\Installer.au3`，
+> 而 `Installer.au3` 又 `#include` 了 `Config.au3` —— 二者靠 `#include-once` 打住，
+> 不会死循环（生成期只执行一次 `Installer_Register()` 调用，注册表在界面加载前就已就绪）。
 
 ---
 

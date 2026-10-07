@@ -50,6 +50,8 @@ Func Config_CategoryName($sKey)
             Return "办公软件"
         Case $PKG_CAT_DEFAULT
             Return "未分组"
+        Case $PKG_CAT_UNSUPPORTED
+            Return "未适配（暂无安装脚本）"
         Case Else
             Return StringStripWS($sKey, 3)
     EndSwitch
@@ -87,7 +89,7 @@ EndFunc
 ;   返回值  分组个数（无软件时为 0）
 ;
 ; 顺序规则：$PKG_CAT_ORDER 决定先后；表里没有的分组按扫描顺序接在后面；
-;          「必须安装」组固定排第一。
+;          「必须安装」组固定排第一，「未适配」组固定排最后（占位信息，不该插在正常分组中间）。
 Func Config_BuildGroups(ByRef $aOut)
     Local $aEmpty[1][2]
     $aOut = $aEmpty
@@ -115,15 +117,17 @@ Func Config_BuildGroups(ByRef $aOut)
     For $i = 0 To UBound($aOrder) - 1
         $sKey = StringStripWS($aOrder[$i], 3)
         If $sKey = "" Then ContinueLoop
+        If $sKey = $PKG_CAT_UNSUPPORTED Then ContinueLoop     ; 固定排最后，不参与排序
         If Config_ArrayFind($aFound, $iFound, $sKey) < 0 Then ContinueLoop
         $iSorted = Config_ArrayAppendUnique($aSorted, $iSorted, $sKey)
     Next
 
     For $i = 0 To $iFound - 1
+        If $aFound[$i] = $PKG_CAT_UNSUPPORTED Then ContinueLoop
         $iSorted = Config_ArrayAppendUnique($aSorted, $iSorted, $aFound[$i])
     Next
 
-    ; ---- 3. 输出：「必须安装」组固定第一 ----
+    ; ---- 3. 输出：「必须安装」组固定第一，「未适配」组固定最后 ----
     Local $aRet[$iFound + 1][2]
     Local $iRet = 0
 
@@ -139,6 +143,12 @@ Func Config_BuildGroups(ByRef $aOut)
         $aRet[$iRet][1] = 0
         $iRet += 1
     Next
+
+    If Config_ArrayFind($aFound, $iFound, $PKG_CAT_UNSUPPORTED) >= 0 Then
+        $aRet[$iRet][0] = $PKG_CAT_UNSUPPORTED
+        $aRet[$iRet][1] = 0
+        $iRet += 1
+    EndIf
 
     ReDim $aRet[$iRet][2]
     $aOut = $aRet

@@ -123,9 +123,18 @@ Global Const $PKG_COL_COUNT    = 6
 
 Global Const $PKG_CAT_REQUIRED = "required"     ; 「必须安装」组的键：Required=1 的软件自动归入，且勾选被锁定
 Global Const $PKG_CAT_DEFAULT  = "misc"         ; 兜底分组键：package.ini 里没写 Category 的软件都归到它，界面显示「未分组」
+Global Const $PKG_CAT_UNSUPPORTED = "unsupported"   ; 「未适配」组的键：安装包目录里有、但还没写安装脚本的目录（仅在 ShowUnsupported=1 时出现）
+
+; 未适配软件的显示名后缀，用于在列表里区分「有包但装不了」的条目
+Global Const $PKG_TAG_UNSUPPORTED = "(未适配)"
+
+; 是否在软件列表里显示「未适配」的目录。默认 0 = 只显示已适配（能真正安装）的软件。
+; 写在 config.ini 的 [General] 段：ShowUnsupported=1 打开，用于排查「包放进去了却没出现在列表里」。
+Global Const $INI_KEY_SHOW_UNSUP = "ShowUnsupported"
+Global Const $SHOW_UNSUP_DEF     = "0"
 
 ; 分组的显示顺序（键名，逗号分隔）：按此表从上到下排列；表里没有的分组接在后面（按扫描顺序）。
-; 「必须安装」组无论写在哪，都固定排第一。
+; 「必须安装」组无论写在哪，都固定排第一；「未适配」组固定排最后。
 ;   debug  —— 调试 / 排障工具
 ;   vision —— 机器视觉（Machine Vision）专用软件
 Global Const $PKG_CAT_ORDER = "required,base,dev,debug,vision,office,misc"

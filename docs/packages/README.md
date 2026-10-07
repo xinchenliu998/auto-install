@@ -7,6 +7,12 @@
 「分组」是配置界面软件列表里显示的分类，来自各软件目录下 `package.ini` 的 `Category`
 （`required` = 必须安装，勾选被锁定，见 [`../usage.md`](../usage.md)）。
 
+> **只有右侧「安装脚本」列有链接的软件才会出现在配置界面的列表里。**
+> 配置界面扫描安装包目录时只收「已适配」的目录（已有 `Installer_Register()` 注册），
+> 光有安装包、没有脚本的目录会被忽略（排障时把 `config.ini` 的
+> `[General] ShowUnsupported` 设成 `1` 可让它们以「(未适配)」显示，见 [`../usage.md`](../usage.md)）。
+> HALCON 一行属于这种情况。
+
 | 软件 | 分组 | 说明文档 | 安装包目录 | 安装脚本 |
 | --- | --- | --- | --- | --- |
 | 7-Zip | 必须安装（`required`） | [7zip.md](7zip.md) | `packages/7zip/` | [`Include/Install/7zip.au3`](../../Include/Install/7zip.au3) |
@@ -30,7 +36,7 @@
 | 项 | 内容 |
 | --- | --- |
 | 软件名称 | |
-| 分组 | 必须安装（`required`）/ 基础环境（`base`）/ 开发工具（`dev`）/ 调试工具（`debug`）/ 机器视觉（`vision`）/ 办公软件（`office`）/ 未分组（`misc`） |
+| 分组 | 必须安装（`required`）/ 基础环境（`base`）/ 开发工具（`dev`）/ 调试工具（`debug`）/ 机器视觉（`vision`）/ 办公软件（`office`）/ 未分组（`misc`）。未适配（`unsupported`）不用手写，由扫描自动归入 |
 | 版本 | |
 | 安装包 | `packages/<目录>/<安装包文件名>` |
 | 安装脚本 | `Include/Install/<软件名>.au3` |

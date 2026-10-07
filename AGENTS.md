@@ -228,6 +228,13 @@ tools/precheck_smoke.au3      前置检查只读探针冒烟测试（不修改�
    - 界面里中文分组名由 `Config_CategoryName()` 映射，`package.ini` 只写 ASCII 键值
      —— 原因见第三节硬约束 7。
 
+   > **⚠️ 只把包放进目录还不够：软件不会自动出现在配置界面的列表里。**
+   > `Config_ScanPackages()` 会调 `Installer_IsRegistered()` 过滤，**只保留已在
+   > `Include\Install\` 里用 `Installer_Register()` 注册过的目录名**；没注册的目录
+   > 默认直接忽略（排障时把 `config.ini` 的 `[General] ShowUnsupported` 设成 `1`
+   > 才会以「(未适配)」显示在列表最后，且固定不勾选）。
+   > 所以第 2 步的注册是**必做**的，目录名要与 `Installer_Register()` 的第一个参数完全一致。
+
    > **整个安装包目录都不纳入版本管理**（见 `.gitignore`）：安装包体积过大，
    > 而且该目录本身可配置、可以放在仓库之外。所以安装包与 `package.ini`
    > 都跟随安装包一起管理，不随仓库分发 —— 克隆仓库后需自行创建该目录，
