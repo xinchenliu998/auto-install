@@ -12,6 +12,7 @@
 ;   （Installer_Register 未注册）的目录默认不出现；排障时把 config.ini 的
 ;   [General] ShowUnsupported 设成 1，它们才会以「(未适配)」显示在最后，
 ;   且勾选框始终不可勾（本模块负责把它按回去）。
+;   一个已适配的都没有时，列表保持**空白**，不放占位行（占位行带复选框，会被当成可勾选项）。
 ;
 ; 控件 ID 存在 $g_idPkgList / $g_idCount（在 Gui\Config.au3 里声明），
 ; 本模块只负责操作它们，不创建窗口、不碰布局。
@@ -68,9 +69,10 @@ Func GuiPackageList_Fill()
     _GUICtrlListView_DeleteAllItems($g_idPkgList)
     GuiPackageList_ClearGroups()
 
+    ; 安装包目录下没有已适配的软件时，列表**保持空白**，不放任何占位行 ——
+    ; 占位行也带复选框，看起来像是「有一个能勾选的东西」，容易误解成可安装项。
     Local $iCount = Config_PackageCount()
     If $iCount = 0 Then
-        _GUICtrlListView_AddItem($g_idPkgList, "（安装包目录下没有已适配的软件）")
         $g_iSelCount = -1
         $g_iSelTotal = -1
         GUICtrlSetData($g_idCount, "已选 0 / 0")

@@ -55,7 +55,7 @@ auto-install.au3                     总入口：解析命令行 → 配置界�
 
 1. `Main()` 解析命令行，`Config_Init()` 初始化配置对象。
 2. 配置界面模式：`Config_Load()` → `GuiConfig_Show()`；用户点「开始安装」时校验并 `Config_Save()`。
-3. `Main_Execute()` 取出勾选项 → 初始化日志 → 检查权限（必要时提权重启）。
+3. `Main_Execute()` 取出勾选项（**0 项也不中止**，只记一条警告日志）→ 初始化日志 → 检查权限（必要时提权重启）。
 4. `GuiInstall_Run()` 先调用 `Precheck_RunAll()` 做前置检查（交互模式下发现问题会弹窗确认，
    选「否」则中止、不执行任何安装任务），再调用 `Installer_RunAll()` 逐项执行，
    实时刷新进度、日志与等待心跳。

@@ -90,14 +90,17 @@ Func Main_Execute($bUnattended = False)
     Local $aSelected[1][$PKG_COL_COUNT]
     Local $iCount = Config_GetSelected($aSelected)
 
-    If $iCount = 0 Then
-        MsgBox($MB_WARN, $APP_TITLE, "没有勾选任何要安装的软件。" & @CRLF & @CRLF & _
-                "请返回配置界面至少选择一项。")
-        Return
-    EndIf
-
     ; ---- 初始化日志 ----
     Logger_Init(Config_LogFile())
+
+    ; ---- 一项都没勾选：不中止，只记录日志 ----
+    ;      出厂装机时可能只想跑一遍前置检查、或只做资源拷贝，所以「没有勾选软件」不算错误。
+    If $iCount = 0 Then
+        Logger_Warn("没有勾选任何要安装的软件，本次只记录日志。")
+        If Not Config_CopyEnabled() Then
+            Logger_Warn("        也未配置资源拷贝，将不会执行任何安装任务。")
+        EndIf
+    EndIf
 
     ; ---- 权限检查 ----
     If Common_IsElevated() Then

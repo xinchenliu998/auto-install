@@ -57,6 +57,7 @@ EndFunc
 ; ------------------------------------------------------------------------------
 Func GuiInstall_OnProgress($iIndex, $iTotal, $sName)
     If $g_hGuiRun = 0 Then Return
+    If $iTotal <= 0 Then Return               ; 没有任何任务时不换算百分比，避免除零
 
     GUICtrlSetData($g_idRunProgress, Int($iIndex * 100 / $iTotal))
     GUICtrlSetData($g_idRunInfo, StringFormat("(%d/%d) %s", $iIndex + 1, $iTotal, $sName))
@@ -129,6 +130,14 @@ Func GuiInstall_Run($aSelected, $iCount)
     Logger_Info("配置文件：" & Config_File())
     Logger_Info("日志文件：" & Logger_File())
     Logger_Info("待执行任务：" & $iCount & " 项")
+    If $iCount = 0 Then
+        ; 没勾选任何软件不中止执行：仍走完前置检查与资源拷贝，只是没有安装任务。
+        If Config_CopyEnabled() Then
+            Logger_Warn("没有勾选任何要安装的软件，本次仅执行资源拷贝。")
+        Else
+            Logger_Warn("没有勾选任何要安装的软件，也未配置资源拷贝，本次不会执行任何安装任务。")
+        EndIf
+    EndIf
     Logger_Write("")
 
     ; ---- 前置检查（交互模式下发现问题会弹窗确认，选择「否」则中止）----
@@ -155,6 +164,9 @@ Func GuiInstall_Run($aSelected, $iCount)
     ElseIf $aStat[2] > 0 Then
         GUICtrlSetData($g_idRunProgress, 100)
         GUICtrlSetData($g_idRunInfo, "执行结束，存在失败项，请查看日志")
+    ElseIf $iCount = 0 And Not Config_CopyEnabled() Then
+        GUICtrlSetData($g_idRunProgress, 100)
+        GUICtrlSetData($g_idRunInfo, "没有需要执行的任务（未勾选任何软件）")
     Else
         GUICtrlSetData($g_idRunProgress, 100)
         GUICtrlSetData($g_idRunInfo, "全部执行完毕")
